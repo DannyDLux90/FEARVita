@@ -1,36 +1,30 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AF  
+**Internal checkpoint:** M29AG  
 **Date:** 2026-09-10  
 **Current milestone:** make the F.E.A.R. retail menu look and sound like the PC version.
 
 The original boot-menu milestone remains complete on real PS Vita hardware: the retail front-end boots, renders, navigates/selects, and Vita system language is bridged to the menu (German verified).
 
-## M29AE hardware result
+## Latest hardware evidence (M29AF)
 
-The 2026-09-10 M29AE hardware run confirms that the private MP4 cache is present at `app0:cache/Menu.mp4`, but `sceAvPlayerInit` still fails with signed result `-2123091296` (`0x817432A0`) before `sceAvPlayerAddSource` is reached. Changing the decoded-frame allocator to physically contiguous main memory did not change that failure.
+The real retail media paths remain correct: `videos\\Menu.bik` is BIKi, 6,301,124 bytes, 512x512, 420 frames at 30 fps, and `Music\\IntroIntLp1v2.wav` decodes as 44.1 kHz stereo PCM. The menu movie contains no audio track; music is separate.
 
-The same run still confirms the retail Bink and audio paths: `Menu.bik` is 512x512 / 420 frames / 30 fps and the separate `Music\\IntroIntLp1v2.wav` is decoded as 44.1 kHz stereo PCM. The HQ Vita audio output remains 48 kHz stereo with the 12-tap sinc resampler and float headroom limiter.
+M29AF did not change the visible menu. Its log shows `SCE_SYSMODULE_AVPLAYER` loading successfully, followed by `sceAvPlayerInit` returning raw `0x817432A0` (signed `-2123091296`). FEARVita treated that value as an error before ever calling `sceAvPlayerAddSource`.
 
-## M29AF change
+The private 420-JPEG fallback also failed: the pack was detected, but every attempted JPEG load returned null. Repeated failed decode attempts explain the observed menu stutter. This fallback is removed from the active M29AG test and no JPEGs are packaged.
 
-M29AF keeps the AvPlayer path as a diagnostic/optional fast path but no longer lets it block visible menu-video progress. If AvPlayer cannot initialize and a private frame pack exists at `app0:menu_frames/000.jpg` through `419.jpg`, FEARVita decodes the user's Menu.bik-derived JPEG frames with libjpeg/vita2d and renders them at the original 30-fps timeline. Frame selection is process-time based, so slow decodes naturally skip ahead instead of slowing the menu clock. The log reports frame-pack detection, first-frame decode time, and a 30-frame decode performance sample.
+## M29AG
 
-The repository contains `project/tools/prepare_menu_framepack.py`, but never the generated frames or any retail asset.
+M29AG tests the AvPlayer handle semantics directly. Working Vita AvPlayer programs preserve the return value and pass it to `sceAvPlayerAddSource`; M29AG therefore rejects explicit `0x806A00xx` AvPlayer error values but no longer rejects an otherwise non-zero handle merely because its sign bit is set. The hardware log includes the raw/signed value, an address-to-memblock probe, acceptance decision, and the subsequent AddSource result.
 
-## Next hardware test
+Video caches now mirror the game's virtual Bink paths (`videos\\foo.bik` -> `video_cache/videos/foo.mp4`). This is the intended scalable bridge for the menu and later in-game cinematics. Public source never ships converted game movies.
 
-Install the private M29AF VPK and enter the main menu. The decisive new log lines are:
-
-- `bink-jpeg frame-pack-present`
-- `bink-jpeg first-frame`
-- `bink-jpeg decode-perf`
-
-The visible result should be the real F.E.A.R. animated menu background (logo/radar imagery) instead of the uniform green fallback. Return the new `fear_menu_boot.log` and a photo/video. Also report whether menu music sounds better, equal, or worse than M29AE.
+Audio is also moved closer to the PC reference: FEARVita's extra `0.72` music and `0.90` UI bus gains are removed, as is the block-wide limiter that could duck music when UI sounds overlap. The game/master/class volume is authoritative; only samples that actually exceed full scale are clamped. The exact retail menu WAV is exported once for lossless comparison after the next hardware run.
 
 ## Known steps to PC-like menu: 3
 
-1. Hardware-verify visible `Menu.bik`-derived playback and finish movie sizing/loop behavior.
-2. Hardware-verify/tune the HQ background-music path.
-3. Finish packed StringDB values, original/PC-nearer font, and final visual polish.
+1. Hardware-verify the real Menu.bik-derived MP4 through AvPlayer and finish movie sizing/loop behavior.
+2. Hardware-verify/tune source-faithful background music against the PC reference.
+3. Finish packed StringDB values, original/PC-nearer font, and final visual/layout polish.
