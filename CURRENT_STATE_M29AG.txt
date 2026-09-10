@@ -1,0 +1,17 @@
+FEARVita 0.02 / M29AG — 2026-09-10
+
+Old boot-menu milestone: 0 open steps.
+PC-like menu milestone: 3 steps pending hardware verification.
+
+M29AF result:
+- No visible video change.
+- JPEG pack present, but every JPEG decode attempt failed; repeated attempts caused stutter.
+- AvPlayer module loaded; sceAvPlayerInit returned raw 0x817432A0 and FEARVita rejected it before AddSource because the typedef is signed.
+
+M29AG:
+- JPEG fallback disabled and not packaged.
+- One MP4 cache per Bink; private Menu test contains one 512x512/30fps H.264 file.
+- Non-zero opaque AvPlayer return is preserved unless it is in the explicit 0x806A00xx error facility.
+- Logs raw/signed init handle and memblock probe, then AddSource result.
+- Audio FEARVita-only 0.72/0.90 bus attenuation removed; block-wide limiter removed.
+- Exact retail menu WAV exported to debug/IntroIntLp1v2.wav for digital comparison.
