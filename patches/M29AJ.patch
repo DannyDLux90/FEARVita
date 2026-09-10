@@ -1,0 +1,105 @@
+--- a/project/integration/lithtech/fearvita_database_vita.cpp
++++ b/project/integration/lithtech/fearvita_database_vita.cpp
+@@ -251,7 +251,15 @@
+                 const uint32 numAttributes = ReadLE32(&packedTables[pos]); pos += 4;
+                 const char* recordName = StringAtOffset(recordNameOffset);
+                 if (!recordName || !*recordName) {
+-                    if (reason) *reason = "bad-record-name";
++                    if (reason) {
++                        std::ostringstream os;
++                        os << "bad-record-name c=" << ci
++                           << " cat=" << categoryName
++                           << " r=" << ri
++                           << " off=" << recordNameOffset
++                           << " pos=" << (pos - 8);
++                        *reason = os.str();
++                    }
+                     return false;
+                 }
+ 
+@@ -858,9 +866,15 @@
+         const uint32 packed = a->values[index];
+         const uint32 categoryIndex = (packed >> 16) & 0xffffu;
+         const uint32 recordIndex = packed & 0xffffu;
+-        if (!db->tablesDecoded || categoryIndex >= db->categoryByIndex.size()) return def;
++        // Expansion Point / Perseus Mandate contain a late packed-table construct
++        // that the current compatibility decoder does not fully understand yet.
++        // DecodePackedTables intentionally leaves every category/record parsed up
++        // to that point alive. Record links into those already-valid categories
++        // are safe and are needed by frontend managers (notably PlayerWeapons).
++        if (categoryIndex >= db->categoryByIndex.size()) return def;
+         VitaCategory* cat = db->categoryByIndex[categoryIndex];
+-        if (!cat || recordIndex >= cat->recordByIndex.size()) return def;
++        if (!cat || !cat->parsed || recordIndex >= cat->recordByIndex.size()) return def;
+         return AsHandle(cat->recordByIndex[recordIndex]);
+     }
+ 
+--- a/lithtech-overlay/FEAR/ClientShellDLL/PlayerMgr.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/PlayerMgr.cpp
+@@ -634,10 +634,22 @@
+     if( !m_pClientWeaponMgr->Init( ))
+ 	{
+ 		LTERROR( "Failed to initialize Client Weapon Mgr!" );
++		FV_PLAYER_STAGE("player-weaponmgr-failed");
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		// Frontend-first Vita compatibility: the expansion databases can still
++		// expose incomplete gameplay weapon links while all interface data needed
++		// for the main menu is present. Do not abort the entire frontend for a
++		// gameplay-only manager. Keep the object alive in its safe partial state;
++		// full weapon/gameplay initialization remains a later gameplay milestone.
++		FV_PLAYER_STAGE("player-weaponmgr-skip-vita");
++#else
+ 		return false;
+-	}
+-
+-	FV_PLAYER_STAGE("player-weaponmgr-ok");
++#endif
++	}
++	else
++	{
++		FV_PLAYER_STAGE("player-weaponmgr-ok");
++	}
+ 	m_pPVAttachmentMgr->Init();
+ 	FV_PLAYER_STAGE("player-pvattach-ok");
+ 
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -430,7 +430,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_menu_boot.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AH; fullscreen movie + campaign video cache namespaces");
++      "FEARVita 0.02 / M29AJ; expansion partial-record links + frontend WeaponMgr fallback");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -150,7 +150,18 @@
+ 
+   vita_create_self(eboot.bin ${PROJECT_NAME} SAFE)
+ 
+-  # Proprietary F.E.A.R. data is deliberately NOT packaged in the VPK.
++  # Proprietary F.E.A.R. data is deliberately NOT part of the public source.
++  # Private hardware-test workspaces may provide campaign loading art under
++  # project/boot_art/. Package it only when present; public builds remain valid
++  # and fall back to a plain background if the optional files are absent.
++  set(FEARVITA_OPTIONAL_BOOT_ART)
++  foreach(_boot_art fear ep pm)
++    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/boot_art/${_boot_art}.png")
++      list(APPEND FEARVITA_OPTIONAL_BOOT_ART
++        FILE "boot_art/${_boot_art}.png" "boot_art/${_boot_art}.png")
++    endif()
++  endforeach()
++
+   vita_create_vpk(${PROJECT_NAME}.vpk ${VITA_TITLEID} eboot.bin
+@@ -163,9 +174,7 @@
+     FILE sce_sys/manual/002.png sce_sys/manual/002.png
+     FILE sce_sys/manual/003.png sce_sys/manual/003.png
+     FILE sce_sys/manual/004.png sce_sys/manual/004.png
+-    FILE boot_art/fear.png boot_art/fear.png
+-    FILE boot_art/ep.png boot_art/ep.png
+-    FILE boot_art/pm.png boot_art/pm.png
++    ${FEARVITA_OPTIONAL_BOOT_ART}
+   )
+ else()
