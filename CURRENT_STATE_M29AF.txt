@@ -1,0 +1,19 @@
+FEARVita 0.02 / M29AF
+Date: 2026-09-10
+
+M29AE hardware result:
+- Menu.bik remains valid: BIKi, 6301124 bytes, 512x512, 420 frames, 30 fps, 0 audio tracks.
+- app0:cache/Menu.mp4 is present.
+- SCE_SYSMODULE_AVPLAYER loads (result 0).
+- sceAvPlayerInit still fails with -2123091296 / 0x817432A0 before AddSource.
+- No visible change from M29AD.
+
+M29AF:
+- Adds private Menu.bik-derived JPEG frame-pack fallback at app0:menu_frames/000.jpg..419.jpg.
+- Uses original 30 fps process-time timeline.
+- Logs bink-jpeg frame-pack-present, first-frame decode time, and decode-perf after 30 frames.
+- Keeps all retail/derived media out of GitHub; only loader/tool are public.
+
+Next:
+Install M29AF private VPK, enter main menu, return fear_menu_boot.log plus photo/video and audio-quality comparison.
+Known steps to PC-like menu remain 3 until hardware verification.

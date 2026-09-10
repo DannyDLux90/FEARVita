@@ -1,0 +1,18 @@
+# Never commit F.E.A.R. retail/proprietary data or user-derived media.
+*.Arch00
+*.arch00
+*.bik
+*.wav
+*.mp3
+*.mp4
+menu_frames/
+cache/
+debug/
+
+# Build outputs.
+build/
+*.vpk
+*.velf
+eboot.bin
+CMakeCache.txt
+CMakeFiles/

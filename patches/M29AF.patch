@@ -1,0 +1,196 @@
+--- a/project/integration/lithtech/fearvita_bink_vita.cpp	2026-09-10 18:19:59.412558235 +0000
++++ b/project/integration/lithtech/fearvita_bink_vita.cpp	2026-09-10 18:20:39.852354896 +0000
+@@ -9,6 +9,7 @@
+ #include <psp2/avplayer.h>
+ #include <psp2/gxm.h>
+ #include <psp2/kernel/sysmem.h>
++#include <psp2/kernel/processmgr.h>
+ #include <psp2/sysmodule.h>
+ 
+ #include <vita2d.h>
+@@ -57,6 +58,17 @@
+   SceAvPlayerHandle av_player = -1;
+   SceAvPlayerFrameInfo av_frame{};
+   std::string av_source;
++  bool jpeg_pack_checked = false;
++  bool jpeg_pack_available = false;
++  bool jpeg_first_frame_logged = false;
++  bool jpeg_missing_logged = false;
++  bool jpeg_perf_logged = false;
++  uint32 jpeg_frame_index = 0xFFFFFFFFu;
++  uint32 jpeg_decoded_frames = 0;
++  uint64_t jpeg_start_us = 0;
++  uint64_t jpeg_decode_total_us = 0;
++  uint64_t jpeg_decode_max_us = 0;
++  vita2d_texture* jpeg_texture = nullptr;
+   HENGINETIMER timer = nullptr;
+   HTEXTURE frame_texture = nullptr;
+ };
+@@ -247,6 +259,109 @@
+          (normalized.size() >= 8 && normalized.rfind("menu.bik") == normalized.size() - 8);
+ }
+ 
++// M29AF private frame-pack fallback.  SceAvPlayer returns 0x817432A0 on the
++// target Vita before opening the MP4 source, even with a VitaSDK-style
++// allocator.  To keep the retail ScreenMovie path moving while that firmware
++// error is investigated, a private test VPK can contain JPEG frames generated
++// from the user's own Menu.bik at app0:menu_frames/000.jpg ... 419.jpg.
++// Public/source builds never include those proprietary frames.
++bool EnsureJpegFramePack(BinkVideoHandle* video) {
++  if (!video || !IsMenuBink(NormalizeName(video->name.c_str()))) return false;
++  if (video->jpeg_pack_checked) return video->jpeg_pack_available;
++  video->jpeg_pack_checked = true;
++  uint64_t bytes = 0;
++  video->jpeg_pack_available = FileExists("app0:menu_frames/000.jpg", &bytes);
++  if (video->jpeg_pack_available) {
++    fearvita::RuntimeDiagnostic("bink-jpeg", std::string("frame-pack-present first-bytes=") +
++        std::to_string(static_cast<unsigned long long>(bytes)) +
++        " frames=" + std::to_string(video->frame_count) +
++        " fps=" + std::to_string(video->fps_num) + "/" + std::to_string(video->fps_den));
++  } else if (!video->jpeg_missing_logged) {
++    video->jpeg_missing_logged = true;
++    fearvita::RuntimeDiagnostic("bink-jpeg", "frame-pack-missing path=app0:menu_frames/000.jpg");
++  }
++  return video->jpeg_pack_available;
++}
++
++void CloseJpegFramePack(BinkVideoHandle* video) {
++  if (!video || !video->jpeg_texture) return;
++  vita2d_wait_rendering_done();
++  vita2d_free_texture(video->jpeg_texture);
++  video->jpeg_texture = nullptr;
++  video->jpeg_frame_index = 0xFFFFFFFFu;
++}
++
++void PumpJpegFramePack(BinkVideoHandle* video) {
++  if (!video || !EnsureJpegFramePack(video) || !video->frame_count) return;
++  const uint32 fps_num = video->fps_num ? video->fps_num : 30u;
++  const uint32 fps_den = video->fps_den ? video->fps_den : 1u;
++  const uint64_t now_us = sceKernelGetProcessTimeWide();
++  if (!video->jpeg_start_us) video->jpeg_start_us = now_us;
++  const uint64_t elapsed_us = now_us - video->jpeg_start_us;
++  const uint64_t denominator = 1000000ull * static_cast<uint64_t>(fps_den);
++  const uint32 frame = static_cast<uint32>(
++      ((elapsed_us * static_cast<uint64_t>(fps_num)) / denominator) % video->frame_count);
++  if (frame == video->jpeg_frame_index && video->jpeg_texture) return;
++
++  char path[64]{};
++  std::snprintf(path, sizeof(path), "app0:menu_frames/%03u.jpg", frame);
++  const uint64_t decode_begin = sceKernelGetProcessTimeWide();
++  vita2d_texture* next = vita2d_load_JPEG_file(path);
++  const uint64_t decode_us = sceKernelGetProcessTimeWide() - decode_begin;
++  if (!next) {
++    static uint32 last_failed_frame = 0xFFFFFFFFu;
++    if (last_failed_frame != frame) {
++      last_failed_frame = frame;
++      fearvita::RuntimeDiagnostic("bink-jpeg", std::string("decode-failed path=") + path);
++    }
++    return;
++  }
++
++  vita2d_texture_set_filters(next, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
++  if (video->jpeg_texture) {
++    // The old frame may still be referenced by the previous display list.
++    vita2d_wait_rendering_done();
++    vita2d_free_texture(video->jpeg_texture);
++  }
++  video->jpeg_texture = next;
++  video->jpeg_frame_index = frame;
++  ++video->jpeg_decoded_frames;
++  video->jpeg_decode_total_us += decode_us;
++  if (decode_us > video->jpeg_decode_max_us) video->jpeg_decode_max_us = decode_us;
++
++  if (!video->jpeg_first_frame_logged) {
++    video->jpeg_first_frame_logged = true;
++    fearvita::RuntimeDiagnostic("bink-jpeg", std::string("first-frame path=") + path +
++        " decode-us=" + std::to_string(static_cast<unsigned long long>(decode_us)) +
++        " video=512x512 private-derived-frame-pack=1");
++  }
++  if (!video->jpeg_perf_logged && video->jpeg_decoded_frames >= 30u) {
++    video->jpeg_perf_logged = true;
++    const uint64_t avg = video->jpeg_decode_total_us / video->jpeg_decoded_frames;
++    fearvita::RuntimeDiagnostic("bink-jpeg", std::string("decode-perf samples=") +
++        std::to_string(video->jpeg_decoded_frames) +
++        " avg-us=" + std::to_string(static_cast<unsigned long long>(avg)) +
++        " max-us=" + std::to_string(static_cast<unsigned long long>(video->jpeg_decode_max_us)));
++  }
++}
++
++bool RenderJpegFramePack(BinkVideoHandle* video) {
++  if (!video || !video->jpeg_texture) return false;
++  const float width = static_cast<float>(vita2d_texture_get_width(video->jpeg_texture));
++  const float height = static_cast<float>(vita2d_texture_get_height(video->jpeg_texture));
++  if (width <= 0.0f || height <= 0.0f) return false;
++
++  constexpr float kTargetWidth = 960.0f;
++  constexpr float kTargetHeight = 544.0f;
++  const float scale = std::min(kTargetWidth / width, kTargetHeight / height);
++  const float draw_w = width * scale;
++  const float draw_h = height * scale;
++  const float x = (kTargetWidth - draw_w) * 0.5f;
++  const float y = (kTargetHeight - draw_h) * 0.5f;
++  vita2d_draw_texture_scale(video->jpeg_texture, x, y, scale, scale);
++  return true;
++}
++
+ void ExportMenuBink(BinkVideoHandle* video) {
+   if (!video || video->export_attempted || !IsMenuBink(NormalizeName(video->name.c_str()))) return;
+   video->export_attempted = true;
+@@ -459,7 +574,7 @@
+   g_videos.insert(video);
+   g_by_name[key] = video;
+   fearvita::RuntimeDiagnostic("bink-video", std::string("handle-created name=") + video->name +
+-      " decoder=container-ready frame-output=avplayer-mp4-cache");
++      " decoder=container-ready frame-output=avplayer-or-private-jpeg-pack");
+   return reinterpret_cast<HVIDEOTEXTURE>(video);
+ }
+ 
+@@ -476,6 +591,7 @@
+   g_by_name.erase(NormalizeName(video->name.c_str()));
+   g_videos.erase(video);
+   CloseAvPlayer(video);
++  CloseJpegFramePack(video);
+   delete video;
+   return LT_OK;
+ }
+@@ -515,6 +631,8 @@
+   video->paused = false;
+   video->finished = false;
+   video->wait_logged = false;
++  video->jpeg_start_us = sceKernelGetProcessTimeWide();
++  video->jpeg_frame_index = 0xFFFFFFFFu;
+   if (video->av_player >= 0) {
+     sceAvPlayerJumpToTime(video->av_player, 0);
+     sceAvPlayerResume(video->av_player);
+@@ -558,6 +676,7 @@
+   if (!video || video->paused || g_pause_all) return;
+ 
+   TryStartAvPlayer(video);
++  if (video->av_player < 0) PumpJpegFramePack(video);
+   if (video->av_player >= 0) {
+     SceAvPlayerFrameInfo frame{};
+     if (sceAvPlayerGetVideoData(video->av_player, &frame) == SCE_TRUE && frame.pData &&
+@@ -593,8 +712,10 @@
+ 
+ bool FearVita_BinkRenderFrame(HVIDEOTEXTURE handle) {
+   BinkVideoHandle* video = Resolve(handle);
+-  if (!video || !video->av_has_frame || !video->av_frame.pData ||
+-      !video->av_frame.details.video.width || !video->av_frame.details.video.height) return false;
++  if (!video) return false;
++  if (!video->av_has_frame) return RenderJpegFramePack(video);
++  if (!video->av_frame.pData || !video->av_frame.details.video.width ||
++      !video->av_frame.details.video.height) return RenderJpegFramePack(video);
+ 
+   const uint32_t width = video->av_frame.details.video.width;
+   const uint32_t height = video->av_frame.details.video.height;
+--- a/project/src/main.cpp	2026-09-10 18:19:59.413589378 +0000
++++ b/project/src/main.cpp	2026-09-10 18:20:39.852554817 +0000
+@@ -429,7 +429,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_menu_boot.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AE; Menu.bik -> H.264 cache + corrected SceAvPlayer phycont allocator");
++      "FEARVita 0.02 / M29AF; Menu.bik retail animation via AvPlayer or private 30fps JPEG fallback");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
