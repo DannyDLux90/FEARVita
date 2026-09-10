@@ -1,0 +1,7 @@
+FEARVita 0.02 / M29AN
+Base F.E.A.R. menu: accepted and unchanged.
+Visual launcher/loading flow: accepted in M29AM and preserved.
+EP/PM database: late Surfaces/WeaponFX record-name compatibility now reaches decoded=1.
+EP/PM current crash: expansion-only dynamic AnimProp synchronization attempts CAutoMessage while Vita ILTClient::Common() is NULL.
+M29AN fix: preserve local dynamic AnimProp registration; skip only unavailable frontend client/server sync message; add explicit PlayerMgr diagnostic stage.
+Next: hardware-test EP and PM for progress beyond ClientWeaponMgr initialization.
