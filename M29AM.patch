@@ -1,0 +1,28 @@
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@
+-      "FEARVita 0.02 / M29AL; direct game selection + corrected addon boot art + continued EP/PM bring-up");
++      "FEARVita 0.02 / M29AM; visual-flow fix: no pre-selector overlay + campaign-safe loading art");
+@@
++  // M29AM: reset the overlay before announcing the campaign.  The selected
++  // campaign diagnostic arms the overlay and assigns the correct artwork.
++  // Resetting after that diagnostic used to wipe the campaign back to FEAR.
++  fearvita::ResetBootProgressOverlay();
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   FearVita_BinkSetCampaignTag(selected->info.id == fearvita::CampaignId::ExtractionPoint ? "ep" :
+       (selected->info.id == fearvita::CampaignId::PerseusMandate ? "pm" : "fear"));
+-  fearvita::ResetBootProgressOverlay();
+--- a/project/src/boot_progress.cpp
++++ b/project/src/boot_progress.cpp
+@@
+-  bool visible = true;
++  bool visible = false;
+@@
+     if (stage.find("selected campaign=") != std::string::npos) {
++      g_overlay.visible = true;
+       if (stage.find("extraction point") != std::string::npos) {
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@
+-  foreach(_launcher_art startup selector icon_fear icon_ep icon_pm)
++  foreach(_launcher_art selector icon_fear icon_ep icon_pm)
