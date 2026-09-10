@@ -3,8 +3,7 @@
 
 No game asset is shipped by FEARVita. Run this on the Menu.bik exported by the
 Vita build, then copy the generated Menu.mp4 back to:
-  ux0:data/FEARVita/cache/Menu.mp4
-Private test VPKs may instead package it as app0:cache/Menu.mp4.
+  ux0:data/FEARVita/video_cache/videos/menu.mp4
 """
 from __future__ import annotations
 import argparse
@@ -28,7 +27,8 @@ def main() -> int:
     cmd = [
         str(exe), "-hide_banner", "-y", "-i", str(args.input),
         "-map", "0:v:0", "-an",
-        "-vf", "scale=w=960:h=544:force_original_aspect_ratio=decrease:force_divisible_by=2",
+        # Keep the exact 512x512 source geometry. The Vita renderer scales once
+        # at presentation time, avoiding an unnecessary pre-scale/re-filter.
         "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1",
         "-pix_fmt", "yuv420p", "-preset", "slow", "-crf", "18",
         "-movflags", "+faststart", str(args.output),
@@ -36,7 +36,7 @@ def main() -> int:
     print("Running:", " ".join(cmd))
     subprocess.run(cmd, check=True)
     print(f"Created: {args.output}")
-    print("Copy it to: ux0:data/FEARVita/cache/Menu.mp4")
+    print("Copy it to: ux0:data/FEARVita/video_cache/videos/menu.mp4")
     return 0
 
 
