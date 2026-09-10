@@ -1,0 +1,112 @@
+--- a/project/integration/lithtech/fearvita_bink_vita.cpp
++++ b/project/integration/lithtech/fearvita_bink_vita.cpp
+@@ -112,25 +112,37 @@
+ }
+ 
+ void* AvAllocTexture(void*, uint32_t alignment, uint32_t size) {
++  // SceAvPlayer's decoded-frame allocator needs physically contiguous main
++  // memory.  CDRAM can satisfy ordinary GXM textures but causes
++  // sceAvPlayerInit to reject the replacement allocator on retail hardware.
++  // Mirror the allocation contract used by working VitaSDK AvPlayer samples:
++  // 1 MiB physical-contiguous blocks, then map them for GXM read/write access.
+   if (!size) return nullptr;
+-  if (alignment < 0x40000u) alignment = 0x40000u;
++  constexpr uint32_t kPhycontAlignment = 1024u * 1024u;
++  alignment = std::max(alignment, kPhycontAlignment);
+   const uint32_t rounded = (size + alignment - 1u) & ~(alignment - 1u);
+ 
+-  SceKernelAllocMemBlockOpt opt{};
+-  opt.size = sizeof(opt);
+-  opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_ALIGNMENT;
+-  opt.alignment = alignment;
+   const SceUID uid = sceKernelAllocMemBlock("fearvita_avframe",
+-      SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, rounded, &opt);
+-  if (uid < 0) return nullptr;
++      SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, rounded, nullptr);
++  if (uid < 0) {
++    fearvita::RuntimeDiagnostic("bink-avplayer", std::string("texture-alloc-failed result=") +
++        std::to_string(uid) + " bytes=" + std::to_string(rounded));
++    return nullptr;
++  }
+ 
+   void* memory = nullptr;
+-  if (sceKernelGetMemBlockBase(uid, &memory) < 0 || !memory) {
++  const int base_result = sceKernelGetMemBlockBase(uid, &memory);
++  if (base_result < 0 || !memory) {
+     sceKernelFreeMemBlock(uid);
++    fearvita::RuntimeDiagnostic("bink-avplayer", std::string("texture-base-failed result=") +
++        std::to_string(base_result));
+     return nullptr;
+   }
+-  if (sceGxmMapMemory(memory, rounded, SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE) < 0) {
++  const int map_result = sceGxmMapMemory(memory, rounded, SCE_GXM_MEMORY_ATTRIB_RW);
++  if (map_result < 0) {
+     sceKernelFreeMemBlock(uid);
++    fearvita::RuntimeDiagnostic("bink-avplayer", std::string("texture-map-failed result=") +
++        std::to_string(map_result) + " bytes=" + std::to_string(rounded));
+     return nullptr;
+   }
+   return memory;
+@@ -174,12 +186,20 @@
+   EnsureAvPlayerModule();
+ 
+   const char* cache_path = "ux0:data/FEARVita/cache/Menu.mp4";
++  const char* packaged_cache_path = "app0:cache/Menu.mp4";
+   const char* raw_path = "ux0:data/FEARVita/debug/Menu.bik";
+   uint64_t cache_size = 0;
++  uint64_t packaged_cache_size = 0;
+   uint64_t raw_size = 0;
+   if (FileExists(cache_path, &cache_size)) {
+     video->av_source = cache_path;
+     video->av_source_is_cache = true;
++  } else if (FileExists(packaged_cache_path, &packaged_cache_size)) {
++    // Private test VPKs may package a cache generated from the user's own
++    // Menu.bik.  Release/source builds never ship that proprietary asset.
++    video->av_source = packaged_cache_path;
++    video->av_source_is_cache = true;
++    cache_size = packaged_cache_size;
+   } else if (FileExists(raw_path, &raw_size)) {
+     // This is an intentional capability probe. Stock SceAvPlayer normally
+     // accepts MP4/H.264 rather than Bink, but logging the real return code gives
+@@ -197,8 +217,8 @@
+   init.memoryReplacement.deallocate = AvFree;
+   init.memoryReplacement.allocateTexture = AvAllocTexture;
+   init.memoryReplacement.deallocateTexture = AvFreeTexture;
+-  init.basePriority = 125;
+-  init.numOutputVideoFrameBuffers = 4;
++  init.basePriority = 0xA0;
++  init.numOutputVideoFrameBuffers = 5;
+   init.autoStart = SCE_TRUE;
+   init.debugLevel = 0;
+   init.defaultLanguage = "eng";
+@@ -439,7 +459,7 @@
+   g_videos.insert(video);
+   g_by_name[key] = video;
+   fearvita::RuntimeDiagnostic("bink-video", std::string("handle-created name=") + video->name +
+-      " decoder=container-ready frame-output=pending-ffmpeg");
++      " decoder=container-ready frame-output=avplayer-mp4-cache");
+   return reinterpret_cast<HVIDEOTEXTURE>(video);
+ }
+ 
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -429,7 +429,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_menu_boot.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AD; Menu.bik export/probe + SceAvPlayer MP4-cache movie bridge");
++      "FEARVita 0.02 / M29AE; Menu.bik -> H.264 cache + corrected SceAvPlayer phycont allocator");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ScreenMgr.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ScreenMgr.cpp
+@@ -459,7 +459,7 @@
+ 		" music=" + (pszScreenMusic ? pszScreenMusic : "<none>"));
+ #endif
+ #if defined(PLATFORM_VITA) || defined(FEARVITA_MENU_LINK_ONLY)
+-	// FEARVita 0.02 / M29AD: use the retail ScreenMovie path on Vita.  The
++	// FEARVita 0.02 / M29AE: use the retail ScreenMovie path on Vita.  The
+ 	// ILTVideoTexture provider now owns a real Bink handle, parses the container,
+ 	// and exports the exact user-owned Menu.bik for decoder validation.
+ 	const char* pszMovie = pszRetailMovie;

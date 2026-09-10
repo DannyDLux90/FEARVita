@@ -1,0 +1,6 @@
+LithTech upstream: https://github.com/jsj2008/lithtech
+Pinned commit: 0eab18289bed72879eddb648d3311075b108cf46
+Apply lithtech-overlay/ over that checkout, then configure FEARVita with:
+  -DFEARVITA_ENABLE_GAME_MODULES=ON
+  -DFEARVITA_MENU_LINK_ONLY=ON
+  -DFEARVITA_LITHTECH_ROOT=<patched lithtech checkout>
