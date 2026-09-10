@@ -1,0 +1,257 @@
+--- a/project/integration/lithtech/fearvita_bink_vita.cpp
++++ b/project/integration/lithtech/fearvita_bink_vita.cpp
+@@ -55,7 +55,7 @@
+   bool av_first_frame_logged = false;
+   bool av_inactive_logged = false;
+   bool av_source_is_cache = false;
+-  SceAvPlayerHandle av_player = -1;
++  SceAvPlayerHandle av_player = 0;
+   SceAvPlayerFrameInfo av_frame{};
+   std::string av_source;
+   bool jpeg_pack_checked = false;
+@@ -182,46 +182,61 @@
+   return true;
+ }
+ 
++bool HasAvPlayer(const BinkVideoHandle* video) {
++  return video && video->av_player != 0;
++}
++
++bool IsKnownAvPlayerErrorValue(uint32_t raw) {
++  // VitaSDK documents 0x806A0001/0003 and reverse-engineered implementations
++  // also expose nearby values in the same facility.  Do not confuse an opaque
++  // handle whose top bit is set with one of these explicit error values.
++  return (raw & 0xFFFFFF00u) == 0x806A0000u;
++}
++
+ void CloseAvPlayer(BinkVideoHandle* video) {
+-  if (!video || video->av_player < 0) return;
++  if (!HasAvPlayer(video)) return;
+   sceAvPlayerStop(video->av_player);
+   sceAvPlayerClose(video->av_player);
+-  video->av_player = -1;
++  video->av_player = 0;
+   video->av_has_frame = false;
+   std::memset(&video->av_frame, 0, sizeof(video->av_frame));
+ }
+ 
++bool IsMenuBink(const std::string& normalized);
++
+ void TryStartAvPlayer(BinkVideoHandle* video) {
+   if (!video || video->av_attempted) return;
+   video->av_attempted = true;
+   EnsureDebugDirectory();
+   EnsureAvPlayerModule();
+ 
+-  const char* cache_path = "ux0:data/FEARVita/cache/Menu.mp4";
+-  const char* packaged_cache_path = "app0:cache/Menu.mp4";
+-  const char* raw_path = "ux0:data/FEARVita/debug/Menu.bik";
++  // A single H.264 file per Bink is the scalable path for both the menu movie
++  // and later in-game cinematics.  M29AG private test packages the user's own
++  // converted Menu.bik as app0:video_cache/videos/menu.mp4.  Public builds ship
++  // no retail-derived media and can use the same path under ux0:data instead.
++  std::string relative = NormalizeName(video->name.c_str());
++  std::replace(relative.begin(), relative.end(), '\\', '/');
++  if (relative.size() >= 4 && relative.compare(relative.size() - 4, 4, ".bik") == 0)
++    relative.replace(relative.size() - 4, 4, ".mp4");
++  const std::string packaged_cache_path = std::string("app0:video_cache/") + relative;
++  const std::string user_cache_path = std::string("ux0:data/FEARVita/video_cache/") + relative;
++  const char* legacy_packaged = "app0:cache/Menu.mp4";
++  const char* legacy_user = "ux0:data/FEARVita/cache/Menu.mp4";
+   uint64_t cache_size = 0;
+-  uint64_t packaged_cache_size = 0;
+-  uint64_t raw_size = 0;
+-  if (FileExists(cache_path, &cache_size)) {
+-    video->av_source = cache_path;
+-    video->av_source_is_cache = true;
+-  } else if (FileExists(packaged_cache_path, &packaged_cache_size)) {
+-    // Private test VPKs may package a cache generated from the user's own
+-    // Menu.bik.  Release/source builds never ship that proprietary asset.
++  if (FileExists(packaged_cache_path.c_str(), &cache_size)) {
+     video->av_source = packaged_cache_path;
+-    video->av_source_is_cache = true;
+-    cache_size = packaged_cache_size;
+-  } else if (FileExists(raw_path, &raw_size)) {
+-    // This is an intentional capability probe. Stock SceAvPlayer normally
+-    // accepts MP4/H.264 rather than Bink, but logging the real return code gives
+-    // us a firmware-authoritative answer while the MP4 cache is absent.
+-    video->av_source = raw_path;
+-    video->av_source_is_cache = false;
++  } else if (FileExists(user_cache_path.c_str(), &cache_size)) {
++    video->av_source = user_cache_path;
++  } else if (IsMenuBink(NormalizeName(video->name.c_str())) && FileExists(legacy_packaged, &cache_size)) {
++    video->av_source = legacy_packaged;
++  } else if (IsMenuBink(NormalizeName(video->name.c_str())) && FileExists(legacy_user, &cache_size)) {
++    video->av_source = legacy_user;
+   } else {
+-    fearvita::RuntimeDiagnostic("bink-avplayer", "no exported Bink/cache source available");
++    fearvita::RuntimeDiagnostic("bink-avplayer", std::string("mp4-cache-missing bink=") + video->name +
++        " expected=" + user_cache_path);
+     return;
+   }
++  video->av_source_is_cache = true;
+ 
+   SceAvPlayerInitData init{};
+   init.memoryReplacement.objectPointer = nullptr;
+@@ -236,17 +251,26 @@
+   init.defaultLanguage = "eng";
+ 
+   const SceAvPlayerHandle player = sceAvPlayerInit(&init);
+-  if (player < 0) {
+-    fearvita::RuntimeDiagnostic("bink-avplayer", std::string("init-failed result=") +
+-        std::to_string(player) + " source=" + video->av_source);
+-    return;
+-  }
++  const uint32_t player_raw = static_cast<uint32_t>(player);
++  const bool known_error = IsKnownAvPlayerErrorValue(player_raw);
++  SceUID handle_memblock = -1;
++  if (player != 0 && !known_error) {
++    handle_memblock = sceKernelFindMemBlockByAddr(
++        reinterpret_cast<void*>(static_cast<uintptr_t>(player_raw)), 0);
++  }
++  char raw_hex[16]{};
++  std::snprintf(raw_hex, sizeof(raw_hex), "0x%08X", static_cast<unsigned>(player_raw));
++  fearvita::RuntimeDiagnostic("bink-avplayer", std::string("init-handle signed=") +
++      std::to_string(player) + " raw=" + raw_hex +
++      " known-error=" + (known_error ? "1" : "0") +
++      " mapped-memblock=" + std::to_string(handle_memblock) +
++      " accepted=" + ((player != 0 && !known_error) ? "1" : "0"));
++  if (player == 0 || known_error) return;
+   video->av_player = player;
+   const int add_result = sceAvPlayerAddSource(player, video->av_source.c_str());
+   fearvita::RuntimeDiagnostic("bink-avplayer", std::string("add-source result=") +
+       std::to_string(add_result) + " source=" + video->av_source +
+-      " mode=" + (video->av_source_is_cache ? "mp4-cache" : "direct-bink-probe") +
+-      " bytes=" + std::to_string(video->av_source_is_cache ? cache_size : raw_size));
++      " mode=mp4-cache bytes=" + std::to_string(cache_size));
+   if (add_result < 0) {
+     CloseAvPlayer(video);
+     return;
+@@ -259,12 +283,9 @@
+          (normalized.size() >= 8 && normalized.rfind("menu.bik") == normalized.size() - 8);
+ }
+ 
+-// M29AF private frame-pack fallback.  SceAvPlayer returns 0x817432A0 on the
+-// target Vita before opening the MP4 source, even with a VitaSDK-style
+-// allocator.  To keep the retail ScreenMovie path moving while that firmware
+-// error is investigated, a private test VPK can contain JPEG frames generated
+-// from the user's own Menu.bik at app0:menu_frames/000.jpg ... 419.jpg.
+-// Public/source builds never include those proprietary frames.
++// Legacy M29AF JPEG diagnostics are retained below for checkpoint readability,
++// but M29AG no longer calls or packages this fallback.  Video playback uses one
++// H.264/MP4 cache file per Bink through SceAvPlayer.
+ bool EnsureJpegFramePack(BinkVideoHandle* video) {
+@@ -618,7 +639,7 @@
+-  if (video->av_player >= 0) {
++  if (HasAvPlayer(video)) {
+@@ -633,7 +654,7 @@
+-  if (video->av_player >= 0) {
++  if (HasAvPlayer(video)) {
+@@ -658,7 +679,7 @@
+-    if (video->av_player >= 0) {
++    if (HasAvPlayer(video)) {
+@@ -676,8 +697,7 @@
+   TryStartAvPlayer(video);
+-  if (video->av_player < 0) PumpJpegFramePack(video);
+-  if (video->av_player >= 0) {
++  if (HasAvPlayer(video)) {
+@@ -713,9 +733,9 @@
+-  if (!video->av_has_frame) return RenderJpegFramePack(video);
++  if (!video->av_has_frame) return false;
+   if (!video->av_frame.pData || !video->av_frame.details.video.width ||
+-      !video->av_frame.details.video.height) return RenderJpegFramePack(video);
++      !video->av_frame.details.video.height) return false;
+--- a/project/integration/lithtech/fearvita_iltsound_vita.cpp
++++ b/project/integration/lithtech/fearvita_iltsound_vita.cpp
+@@ -1,6 +1,6 @@
+-// FEARVita 0.01 / M29AC: single Vita audio output thread, retail RIFF/WAVE
+-// decoding, high-quality fixed-rate resampling and a headroom-aware float mixer.
++// FEARVita 0.02 / M29AG: single Vita audio output thread, retail RIFF/WAVE
++// decoding, high-quality fixed-rate resampling and source-faithful unity-bus mixing.
+@@ -9,6 +9,8 @@
+ #include <psp2/audioout.h>
++#include <psp2/io/fcntl.h>
++#include <psp2/io/stat.h>
+ #include <psp2/kernel/threadmgr.h>
+@@ -16,6 +18,7 @@
+ #include <cmath>
++#include <cctype>
+@@ -71,6 +74,42 @@
++bool IsMenuMusic(const char* name) {
++  std::string value = name ? name : "";
++  std::replace(value.begin(), value.end(), '/', '\\');
++  std::transform(value.begin(), value.end(), value.begin(),
++      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
++  return value == "music\\introintlp1v2.wav" ||
++      (value.size() >= 17 && value.rfind("introintlp1v2.wav") == value.size() - 17);
++}
++
++void ExportMenuMusicOnce(const char* name, const std::vector<std::uint8_t>& file) {
++  static bool attempted = false;
++  if (attempted || !IsMenuMusic(name) || file.empty()) return;
++  attempted = true;
++  sceIoMkdir("ux0:data", 0777);
++  sceIoMkdir("ux0:data/FEARVita", 0777);
++  sceIoMkdir("ux0:data/FEARVita/debug", 0777);
++  const char* path = "ux0:data/FEARVita/debug/IntroIntLp1v2.wav";
++  const SceUID fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
++  if (fd < 0) {
++    fearvita::RuntimeDiagnostic("sound-export", std::string("open-failed result=") + std::to_string(fd));
++    return;
++  }
++  std::size_t written = 0;
++  while (written < file.size()) {
++    const int n = sceIoWrite(fd, file.data() + written,
++        static_cast<SceSize>(std::min<std::size_t>(file.size() - written, 1024u * 1024u)));
++    if (n <= 0) break;
++    written += static_cast<std::size_t>(n);
++  }
++  sceIoClose(fd);
++  fearvita::RuntimeDiagnostic("sound-export", std::string("menu-wav path=") + path +
++      " bytes=" + std::to_string(written) + " expected=" + std::to_string(file.size()) +
++      " complete=" + (written == file.size() ? "1" : "0"));
++}
+@@ -251,6 +290,7 @@
+   if (!ReadVfsBytes(name, &file, error)) return false;
++  ExportMenuMusicOnce(name, file);
+@@ -347,7 +387,7 @@
+-      "Vita MAIN port open 48000Hz stereo frames=1024; HQ 12-tap sinc + float headroom limiter");
++      "Vita MAIN port open 48000Hz stereo frames=1024; HQ 12-tap sinc + unity retail gain + sample clamp");
+@@ -361,11 +401,9 @@
+-        const bool is_music = (sound->mix_channel == PLAYSOUND_MIX_MUSIC);
+-        const float bus_gain = is_music ? 0.72f : 0.90f;
+-        const float gain = master * (static_cast<float>(sound->volume) / 100.0f) * bus_gain;
++        const float gain = master * (static_cast<float>(sound->volume) / 100.0f);
+@@ -395,11 +433,9 @@
+-    float peak = 0.0f;
+-    for (float sample : mix) peak = std::max(peak, std::fabs(sample));
+-    const float limiter_gain = peak > 0.94f ? (0.94f / peak) : 1.0f;
+     for (int i = 0; i < kOutputFrames * 2; ++i) {
+-      const float sample = std::max(-1.0f, std::min(1.0f, mix[i] * limiter_gain));
++      const float sample = std::max(-1.0f, std::min(1.0f, mix[i]));
+@@ -493,7 +529,12 @@
+-          " mix=" + std::to_string(sound->mix_channel));
++          " mix=" + std::to_string(sound->mix_channel) +
++          " volume=" + std::to_string(sound->volume) +
++          " pitch=" + std::to_string(sound->pitch) +
++          " class=" + std::to_string(sound->sound_class) +
++          " flags=" + std::to_string(info->m_dwFlags) +
++          " loop=" + (sound->loop ? "1" : "0"));
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -429,7 +429,7 @@
+-      "FEARVita 0.02 / M29AF; Menu.bik retail animation via AvPlayer or private 30fps JPEG fallback");
++      "FEARVita 0.02 / M29AG; opaque AvPlayer handle fix + single MP4 movie cache + source-faithful audio gain");
+--- a/project/tools/prepare_menu_video.py
++++ b/project/tools/prepare_menu_video.py
+@@ -3,7 +3,7 @@
+-  ux0:data/FEARVita/cache/Menu.mp4
++  ux0:data/FEARVita/video_cache/videos/menu.mp4
+@@ -27,7 +27,8 @@
+-        "-vf", "scale=w=960:h=544:force_original_aspect_ratio=decrease:force_divisible_by=2",
++        # Keep the exact 512x512 source geometry. The Vita renderer scales once
++        # at presentation time, avoiding an unnecessary pre-scale/re-filter.
+         "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1",
+@@ -35,7 +36,7 @@
+-    print("Copy it to: ux0:data/FEARVita/cache/Menu.mp4")
++    print("Copy it to: ux0:data/FEARVita/video_cache/videos/menu.mp4")
