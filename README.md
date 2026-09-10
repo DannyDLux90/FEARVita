@@ -3,17 +3,19 @@
 Work-in-progress PS Vita port/integration project for the open LithTech/Jupiter Ex source base used by **F.E.A.R.**.
 
 Current public app version: **0.02**  
-Current internal checkpoint: **M29AF**
+Current internal checkpoint: **M29AG**
 
-The original retail game data is **not** included. You must provide your own legally obtained F.E.A.R. data files. `Menu.bik`, archives, music, generated menu frames, and other proprietary retail assets are intentionally excluded from this repository.
+The original retail game data is **not** included. You must provide your own legally obtained F.E.A.R. data files. `.bik`, `.mp4`, archives, music, generated frames, and other proprietary/retail-derived assets are intentionally excluded from this repository.
 
 ## Current status
 
-The retail F.E.A.R. front-end boots on real PS Vita hardware, renders, accepts controller input, and follows Vita system language. The real `videos\\Menu.bik` has been exported and validated as Bink/BIKi: 6,301,124 bytes, 512x512, 420 frames, 30 fps, 14 seconds, no embedded audio track. The menu music remains the separate retail WAV path.
+The retail F.E.A.R. front-end boots on real PS Vita hardware, renders, accepts controller input, and follows Vita system language. The current target is presentation parity with the original PC main menu.
 
-M29AE proved that `SceAvPlayer` still fails at `sceAvPlayerInit` with `0x817432A0` before the private MP4 cache can even be opened. M29AF therefore adds a deterministic software presentation fallback: a private 30-fps JPEG frame pack generated from the user's own `Menu.bik` and drawn through vita2d. The public source contains the loader and conversion tool only; it never contains the frames.
+The real `videos\\Menu.bik` has been validated as BIKi: 6,301,124 bytes, 512x512, 420 frames, 30 fps, 14 seconds, no embedded audio. The menu music is the separate retail `Music\\IntroIntLp1v2.wav`.
 
-Start with `CURRENT_STATE.md` and `M29AF_PROGRESS_2026-09-10.md`.
+M29AF proved that a per-frame JPEG fallback is the wrong direction: the packaged JPEGs were detected but failed to decode on hardware, and the retries introduced menu stutter. M29AG returns to the scalable hardware-video path: one H.264 MP4 cache per Bink, using `SceAvPlayer` and a virtual-path-preserving cache layout. It also removes FEARVita-only audio attenuation so the retail volume controls determine the menu sound.
+
+Start with `CURRENT_STATE.md` and `M29AG_PROGRESS_2026-09-10.md`.
 
 ## Source layout
 
@@ -22,12 +24,12 @@ Start with `CURRENT_STATE.md` and `M29AF_PROGRESS_2026-09-10.md`.
 - `UPSTREAM_PIN.txt` — upstream repository/commit used as the base.
 - `LITHTECH_OVERLAY_MANIFEST.txt` — overlay file manifest.
 
-## Private menu frame pack
+## User-owned video cache
 
-After FEARVita exports your own `Menu.bik`, generate the fallback frames on a PC:
+For an exported directory that preserves F.E.A.R.'s virtual paths, build the MP4 cache with:
 
 ```bash
-python3 project/tools/prepare_menu_framepack.py Menu.bik menu_frames
+python3 project/tools/prepare_video_cache.py exported_binks video_cache
 ```
 
-A private test VPK can package that directory at `app0:menu_frames/`. Do not commit or redistribute the generated frames.
+For example, `exported_binks/videos/Menu.bik` becomes `video_cache/videos/Menu.mp4`. Copy that cache below `ux0:data/FEARVita/video_cache/`. The current private hardware-test VPK packages only the user's converted menu movie; public builds do not.
