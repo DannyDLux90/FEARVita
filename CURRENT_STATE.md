@@ -1,13 +1,15 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AM  
+**Internal checkpoint:** M29AN  
 **Date:** 2026-09-10
 
-The F.E.A.R. base-game main menu remains accepted on hardware: the Menu.bik-derived H.264 cache plays through SceAvPlayer and is stretched to the complete 960x544 Vita framebuffer. The retail menu music uses the source WAV at retail-requested gain through the Vita 48 kHz HQ resampler.
+The F.E.A.R. base-game main menu is accepted on hardware and remains unchanged. The M29AM visual flow is also accepted: launch enters the campaign selector directly, and F.E.A.R. / Extraction Point / Perseus Mandate use their correct per-campaign loading presentation with loading phase text and progress.
 
-M29AM fixes the visual launcher/loading flow after M29AL hardware feedback. The pre-selector boot-progress overlay is now hidden, so startup enters the game selector directly. Boot-progress rendering is armed only after a campaign has actually been selected. The overlay reset now happens before the selected-campaign diagnostic; this prevents the selected EP/PM campaign id from being reset back to F.E.A.R. and fixes the wrong post-selection loading background. The loading phase text remains visible above the progress bar. Private/user-provided artwork is not committed to the public repository.
+Both EP and PM now fully decode their main expansion GADB after the late `Surfaces/WeaponFX` compatibility fix. M29AM hardware logs then reach `player-movemgr-ok`, resolve expansion weapon records `NailGun`, `Cannon` and `Plasma`, and data-abort before `player-weaponmgr-ok`.
 
-The previous M29AK database change is retained: the late expansion Surfaces/WeaponFX packed-table record-name anomaly is given a synthetic internal record name, which allows the main EP/PM GADB table to decode fully instead of failing at the last categories. Hardware logs show that this part now succeeds; the remaining EP/PM crash still occurs later around PlayerMgr/weapon initialization and remains the next code target.
+The paired Vita core dumps point to the same frontend failure site: `AnimPropUtils::Enum()` constructs a `CAutoMessage` for a newly discovered expansion animation property, while the Vita ILTClient compatibility layer currently has no `ILTCommon` implementation and returns `NULL` from `Common()`. This makes `g_pCommonLT` unavailable during the dynamic animation-property synchronization message.
 
-Next hardware priority: verify the M29AM visual flow (direct selector, correct EP/PM loading art), then return fresh EP/PM boot logs/core dumps for the remaining menu bring-up.
+M29AN keeps newly discovered dynamic animation-property mappings local when `g_pCommonLT` is unavailable on Vita and skips only that client/server synchronization message in the current frontend-only runtime. PC/upstream behavior is unchanged. `PlayerMgr` now logs `player-commonlt-ok` or `player-commonlt-null-local-anim-sync` before ClientWeaponMgr initialization so the next hardware result is explicit.
+
+Next hardware priority: boot EP and PM and confirm progress beyond `NailGun/Cannon/Plasma` toward `player-weaponmgr-ok`, `frontend-main-ok` and `complete`. Any later crash becomes the next isolated compatibility seam.
