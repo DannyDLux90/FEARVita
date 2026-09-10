@@ -1,18 +1,21 @@
-# Never commit F.E.A.R. retail/proprietary data or user-derived media.
-*.Arch00
-*.arch00
-*.bik
-*.wav
-*.mp3
-*.mp4
-menu_frames/
-cache/
-debug/
-
-# Build outputs.
+# Build outputs
 build/
-*.vpk
+*.elf
 *.velf
 eboot.bin
-CMakeCache.txt
-CMakeFiles/
+*.vpk
+
+# User-owned F.E.A.R. retail data and derived media
+*.Arch00
+*.Arch00s
+*.bik
+*.mp4
+*.wav
+menu_frames/
+video_cache/
+data/
+
+# Local generated/debug output
+*.log
+__pycache__/
+*.pyc
