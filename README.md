@@ -32,4 +32,4 @@ For an exported directory that preserves F.E.A.R.'s virtual paths, build the MP4
 python3 project/tools/prepare_video_cache.py exported_binks video_cache
 ```
 
-For example, `exported_binks/videos/Menu.bik` becomes `video_cache/videos/Menu.mp4`. Copy that cache below `ux0:data/FEARVita/video_cache/`. The current private hardware-test VPK packages only the user's converted menu movie; public builds do not.
+For example, `exported_binks/videos/Menu.bik` becomes `video_cache/videos/menu.mp4`. Cache paths are normalized to lower-case to match FEARVita's virtual-path normalization. Copy that cache below `ux0:data/FEARVita/video_cache/`. The current private hardware-test VPK packages only the user's converted menu movie; public builds do not.
