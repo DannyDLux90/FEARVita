@@ -1,30 +1,18 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AG  
-**Date:** 2026-09-10  
-**Current milestone:** make the F.E.A.R. retail menu look and sound like the PC version.
+**Internal checkpoint:** M29AH  
+**Date:** 2026-09-10
 
-The original boot-menu milestone remains complete on real PS Vita hardware: the retail front-end boots, renders, navigates/selects, and Vita system language is bridged to the menu (German verified).
+M29AG is the real-hardware video breakthrough: SceAvPlayer accepts the generated H.264 cache and returns the first 512x512 YVU420P2 frame. The value `0x817432A0` is an opaque AvPlayer handle, not a failure merely because its signed form is negative.
 
-## Latest hardware evidence (M29AF)
+M29AH stretches the PC menu movie across the complete 960x544 Vita framebuffer and namespaces converted movie caches per campaign (`fear`, `ep`, `pm`) so two campaigns cannot collide on the same virtual `videos\\Menu.bik` name. The old JPEG frame fallback is removed.
 
-The real retail media paths remain correct: `videos\\Menu.bik` is BIKi, 6,301,124 bytes, 512x512, 420 frames at 30 fps, and `Music\\IntroIntLp1v2.wav` decodes as 44.1 kHz stereo PCM. The menu movie contains no audio track; music is separate.
+The correct retail menu audio source is `Music\\IntroIntLp1v2.wav`, 44.1 kHz stereo, looped. FEARVita exports it unchanged for validation and mixes it at the retail-requested gain through the Vita 48 kHz HQ sinc path.
 
-M29AF did not change the visible menu. Its log shows `SCE_SYSMODULE_AVPLAYER` loading successfully, followed by `sceAvPlayerInit` returning raw `0x817432A0` (signed `-2123091296`). FEARVita treated that value as an error before ever calling `sceAvPlayerAddSource`.
+Extraction Point and Perseus Mandate still require current hardware diagnosis. Their pre-M29X failures had separate causes before any menu video was needed. The VFS/network fixes remain present, but successful add-on menu entry has not been verified on current hardware. If an add-on reaches ScreenMovie, M29AH exports its menu Bink separately for conversion.
 
-The private 420-JPEG fallback also failed: the pack was detected, but every attempted JPEG load returned null. Repeated failed decode attempts explain the observed menu stutter. This fallback is removed from the active M29AG test and no JPEGs are packaged.
-
-## M29AG
-
-M29AG tests the AvPlayer handle semantics directly. Working Vita AvPlayer programs preserve the return value and pass it to `sceAvPlayerAddSource`; M29AG therefore rejects explicit `0x806A00xx` AvPlayer error values but no longer rejects an otherwise non-zero handle merely because its sign bit is set. The hardware log includes the raw/signed value, an address-to-memblock probe, acceptance decision, and the subsequent AddSource result.
-
-Video caches now mirror the game's virtual Bink paths (`videos\\foo.bik` -> `video_cache/videos/foo.mp4`). This is the intended scalable bridge for the menu and later in-game cinematics. Public source never ships converted game movies.
-
-Audio is also moved closer to the PC reference: FEARVita's extra `0.72` music and `0.90` UI bus gains are removed, as is the block-wide limiter that could duck music when UI sounds overlap. The game/master/class volume is authoritative; only samples that actually exceed full scale are clamped. The exact retail menu WAV is exported once for lossless comparison after the next hardware run.
-
-## Known steps to PC-like menu: 3
-
-1. Hardware-verify the real Menu.bik-derived MP4 through AvPlayer and finish movie sizing/loop behavior.
-2. Hardware-verify/tune source-faithful background music against the PC reference.
-3. Finish packed StringDB values, original/PC-nearer font, and final visual/layout polish.
+## Remaining PC-menu work
+1. Hardware-verify M29AH fullscreen movie presentation and final loop/timing.
+2. Finish exact audio A/B tuning only if the source-faithful current path still differs perceptually.
+3. Finish packed StringDB values, original/PC-nearer font, and final visual polish.
