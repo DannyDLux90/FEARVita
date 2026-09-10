@@ -1,0 +1,13 @@
+FEARVita 0.02 / M29AH
+2026-09-10
+
+- M29AG hardware breakthrough confirmed: AvPlayer add-source=0, first 512x512 YVU420P2 frame decoded.
+- M29AH stretches the menu movie to the full 960x544 Vita framebuffer.
+- MP4 cache is campaign-namespaced: fear / ep / pm.
+- Menu Bink export is campaign-specific: Menu_fear.bik / Menu_ep.bik / Menu_pm.bik.
+- JPEG frame fallback removed.
+- Batch host converter supports FEAR/EP/PM and optional Bink audio -> AAC 48 kHz.
+- F.E.A.R. private test contains only fear/videos/menu.mp4.
+- EP/PM boot failures are not assumed to be video failures; fresh current logs are required.
+- Known old EP/PM fixes (disconnected pause guard + base/expansion VFS overlay) remain in source.
+- Next: verify fullscreen base menu; then test EP and PM separately and return each log.
