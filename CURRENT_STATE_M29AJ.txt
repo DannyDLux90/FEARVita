@@ -1,0 +1,17 @@
+FEARVita 0.02 / M29AJ
+Date: 2026-09-10
+
+F.E.A.R. main menu: accepted by user; fullscreen Menu.bik-derived AvPlayer path works.
+Loading screen: M29AI minimal campaign artwork + progress bar/percent only.
+
+Expansion hardware evidence:
+- EP and PM both reached PlayerMgr MoveMgr, then EngineInit returned 1 before WeaponMgr success.
+- EP main packed GADB reaches 156/158 categories then bad-record-name.
+- PM main packed GADB reaches 162/164 categories then bad-record-name.
+
+M29AJ:
+- resolve RecordLinks into already-parsed categories even when a later packed category is unsupported;
+- richer packed-table failure diagnostics;
+- Vita frontend-only ClientWeaponMgr failure fallback instead of aborting the whole menu boot.
+
+Next test priority: EP and PM. Return a fresh log from each campaign.
