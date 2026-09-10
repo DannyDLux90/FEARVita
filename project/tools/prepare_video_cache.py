@@ -3,7 +3,8 @@
 
 The input is a directory containing exported .bik files, preferably preserving
 F.E.A.R.'s virtual layout (for example videos/Menu.bik). Output paths mirror
-that layout with .mp4 extensions so FEARVita can resolve them under:
+that layout with .mp4 extensions, normalized to lower-case to match FEARVita's
+case-insensitive virtual filesystem names, under:
 
     ux0:data/FEARVita/video_cache/<virtual-path>.mp4
 
@@ -53,6 +54,9 @@ def main() -> int:
     converted = skipped = 0
     for movie in movies:
         rel = movie.relative_to(args.input_dir).with_suffix(".mp4")
+        # FEARVita normalizes retail VFS names to lower-case. Vita's ux0/app0
+        # filesystems are case-sensitive, so mirror that normalization here.
+        rel = Path(*[part.lower() for part in rel.parts])
         dst = args.output_dir / rel
         if not args.force and dst.is_file() and dst.stat().st_mtime >= movie.stat().st_mtime:
             print(f"[video-cache] up-to-date: {dst}")
