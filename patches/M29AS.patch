@@ -1,0 +1,123 @@
+--- a/project/integration/lithtech/fearvita_stringedit_vita.cpp
++++ b/project/integration/lithtech/fearvita_stringedit_vita.cpp
+@@ -345,8 +345,14 @@
+ 
+         fearvita::RuntimeDiagnostic("stringedit",
+             db->packedDecoded
+-              ? "retail SKDB values decoded; retail menu strings authoritative"
++              ? "retail SKDB values decoded; Vita system-language overlay has priority where available"
+               : "retail IDs indexed; packed values unavailable; system-language safety net active");
++        fearvita::RuntimeDiagnostic(
++            "stringedit-lang",
++            std::string("system=") + fearvita::GetSystemLanguageId() +
++            " game-language-bound=1 override-priority=1 core-overrides=" +
++            std::to_string(fearvita::GetSystemLocalizedStringCount()) +
++            " packed=" + (db->packedDecoded ? "1" : "0"));
+         return db;
+     }
+ 
+@@ -376,10 +382,15 @@
+     }
+ 
+     const wchar_t* GetString(HSTRINGEDIT h, const char* id) override {
++        // The Vita system language is authoritative for every id covered by the
++        // portable localization bridge.  M29AQ accidentally let decoded packed
++        // English retail values win first, which regressed the previously working
++        // system-language behavior.  Keep packed SKDB values as the complete
++        // fallback for ids that are not covered by the bridge.
++        if (const wchar_t* localized = fearvita::LookupSystemLocalizedString(id)) return localized;
+         const uint32 index = GetIndex(h, id);
+         if (index == STRINGID_NONE_INDEX) return L"<none>";
+         if (index == INVALID_STRINGEDIT_INDEX) {
+-            if (const wchar_t* localized = fearvita::LookupSystemLocalizedString(id)) return localized;
+             EmitError(h, id ? id : "<null>", "string ID not present in retail Strdb00p index");
+             return L"";
+         }
+@@ -390,8 +401,8 @@
+         if (index == STRINGID_NONE_INDEX) return L"<none>";
+         if (!h || index >= h->entries.size()) return L"";
+         CVitaStringEntry& e = h->entries[index];
+-        if (e.hasPackedValue) return e.value.c_str();
+         if (const wchar_t* localized = fearvita::LookupSystemLocalizedString(e.id.c_str())) return localized;
++        if (e.hasPackedValue) return e.value.c_str();
+         LogFallbackId(e.id.c_str());
+         return e.fallback.c_str();
+     }
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -531,7 +531,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_menu_boot.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AR; full menu link audit + touch selector retail sounds");
++      "FEARVita 0.02 / M29AS; Vita-language priority restored + weapon runtime trace");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ClientWeaponMgr.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ClientWeaponMgr.cpp
+@@ -24,6 +24,10 @@
+ #include "ClientDB.h"
+ #include "VehicleMgr.h"
+ #include "PlayerLureFX.h"
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/runtime_diagnostics.h"
++#include <string>
++#endif
+ 
+ //
+ // Defines
+@@ -118,6 +122,9 @@
+ 	// Determine m_nMaxWeapons
+ 	
+ 	m_nMaxWeapons = g_pWeaponDB->GetNumPlayerWeapons();
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("weapon-runtime", std::string("client-init max-weapons=") + std::to_string(m_nMaxWeapons));
++#endif
+ 
+ 	// Allocate space for our array...
+ 
+@@ -155,6 +162,11 @@
+ 			ASSERT( !"CClientWeaponMgr::Init.  Could not init clientweapon." );
+ 			return false;
+ 		}
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		const char* pszRecordName = g_pLTDatabase->GetRecordName(hWeapon);
++		fearvita::RuntimeDiagnostic("weapon-runtime", std::string("client-init weapon-index=") +
++			std::to_string(nWeapon) + " record=" + (pszRecordName ? pszRecordName : "<null>"));
++#endif
+ 	}
+ 
+ 	m_pCurrentWeapon		= NULL;
+@@ -963,6 +975,14 @@
+ 
+ 	// Check if the weapon has a dual version that can be switched to...
+ 	HWEAPONDATA hWeaponData = g_pWeaponDB->GetWeaponData( hWeapon, !USE_AI_DATA );
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	{
++		const char* pszRequested = hWeapon ? g_pLTDatabase->GetRecordName(hWeapon) : NULL;
++		fearvita::RuntimeDiagnostic("weapon-runtime", std::string("change-request record=") +
++			(pszRequested ? pszRequested : "<null>") +
++			" ammo-override=" + (hAmmo ? "1" : "0"));
++	}
++#endif
+ 	HWEAPON hDualWeapon = g_pWeaponDB->GetRecordLink( hWeaponData, WDB_WEAPON_rDualWeapon );
+ 	if( CanChangeToWeapon( hDualWeapon ))
+ 	{
+@@ -1167,7 +1187,15 @@
+ 	//jrg- 9/2/02 - this is getting called both when we start switching and when we finish switching
+ 	//		PlayerMgr is using this to track if we're in mid switch
+ 	g_pPlayerMgr->HandleWeaponChanged( hWeapon, hNewAmmo, (!bChangeWeapon || bSwitchInstantly) );
+-
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	{
++		const char* pszActive = (m_pCurrentWeapon && m_pCurrentWeapon->GetWeaponRecord())
++			? g_pLTDatabase->GetRecordName(m_pCurrentWeapon->GetWeaponRecord()) : NULL;
++		fearvita::RuntimeDiagnostic("weapon-runtime", std::string("change-dispatched active=") +
++			(pszActive ? pszActive : "<pending-or-none>") +
++			" instant=" + (bSwitchInstantly ? "1" : "0"));
++	}
++#endif
+ 
+ 	return true;
+ }
