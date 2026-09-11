@@ -1,0 +1,10 @@
+FEARVita 0.02 / M29AW
+2026-09-11
+
+Frontend milestone: complete for F.E.A.R., Extraction Point and Perseus Mandate.
+
+M29AW establishes one canonical Killzone-inspired PS Vita control profile for all three campaigns. Restore Defaults reloads the same profile, including front touchscreen and rear touchpad bindings. The Vita Bubble manual is refreshed to five pages and documents the full layout.
+
+M29AV hardware evidence confirms the preload state machine and local STARTGAME_NORMAL bridge work. The current ingame blocker is the real ObjectDLL/server/world runtime.
+
+The base F.E.A.R. Steam data is English-interface data. On a German Vita, M29AW applies a FEARVita-authored German fallback to the first base-game load screen only. This is not presented as official retail German localization. Loading diagnostics now report mission, level, briefing and help StringDB ids for later campaign-specific localization work.
