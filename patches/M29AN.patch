@@ -22,8 +22,8 @@
 +			cMsg.WriteString(pszPropName);
 +			cMsg.Writeuint32(eNewProp);
 +			cMsg.Writeuint32(iOffset);
-+			SERVER_CODE(g_pLTServer->SendToClient(cMsg.Read(), NULL, MESSAGE_GUARANTEED); )
-+			CLIENT_CODE(g_pLTClient->SendToServer(cMsg.Read(), MESSAGE_GUARANTEED); )
++			SERVER_CODE(g_pLTServer->SendToClient(cMsg.Read(), NULL, MESSAGE_GUARANTEED);	)
++			CLIENT_CODE(g_pLTClient->SendToServer(cMsg.Read(), MESSAGE_GUARANTEED);			)
 +		}
 +#else
  		CAutoMessage cMsg;
@@ -31,11 +31,11 @@
  		cMsg.WriteString(pszPropName);
 @@ -151,6 +173,7 @@
  		cMsg.Writeuint32(iOffset);
- 		SERVER_CODE(g_pLTServer->SendToClient(cMsg.Read(), NULL, MESSAGE_GUARANTEED); )
- 		CLIENT_CODE(g_pLTClient->SendToServer(cMsg.Read(), MESSAGE_GUARANTEED); )
+ 		SERVER_CODE(g_pLTServer->SendToClient(cMsg.Read(), NULL, MESSAGE_GUARANTEED);	)
+ 		CLIENT_CODE(g_pLTClient->SendToServer(cMsg.Read(), MESSAGE_GUARANTEED);			)
 +#endif
  
- 		g_pLTBase->CPrint( "ADD_ANIM_PROP(%s)\t\t\t// kAP_%s", pszPropName, pszPropName );
+ 		g_pLTBase->CPrint( "ADD_ANIM_PROP(%s)			// kAP_%s", pszPropName, pszPropName );
  	}
 --- a/lithtech-overlay/FEAR/ClientShellDLL/PlayerMgr.cpp
 +++ b/lithtech-overlay/FEAR/ClientShellDLL/PlayerMgr.cpp
