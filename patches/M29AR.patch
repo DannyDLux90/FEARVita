@@ -114,18 +114,21 @@
 +                 "Izq./Der.: seleccionar   X: iniciar   tactil: seleccionar / otra vez: iniciar   Circulo: salir",
 +                 "左右で選択   Xで開始   タップで選択 / 再タップで開始   ○で終了"),
                 RGBA8(214, 214, 214, 255));
+ 
+       for (std::size_t i = 0; i < campaigns.size(); ++i) {
 @@ -504,7 +531,7 @@
    sceIoMkdir("ux0:data/FEARVita/user", 0777);
    fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_menu_boot.log");
    fearvita::RuntimeDiagnostic("startup",
 -      "FEARVita 0.02 / M29AQ; retail SKDB strings + menu/weapon linkage audit");
 +      "FEARVita 0.02 / M29AR; full menu link audit + touch selector retail sounds");
-@@ -555,6 +582,15 @@
-     fearvita::CloseRuntimeDiagnostics();
-     sceKernelExitProcess(3);
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -557,6 +584,15 @@
      return 3;
-+  }
-+
+   }
+ 
 +  // The selector uses the exact retail UI select/selectchange sounds. Mount
 +  // the base FEAR VFS before presenting it so those user-owned WAVs are
 +  // available before a campaign frontend has booted.
@@ -133,9 +136,11 @@
 +    fearvita::RuntimeDiagnostic("launcher-vfs", "base mount failed; selector remains usable without sound");
 +  } else {
 +    fearvita::RuntimeDiagnostic("launcher-vfs", "base mount ready for retail UI sounds");
-   }
- 
++  }
++
    const fearvita::CampaignState* selected = ShowCampaignLauncher(renderer, controller, campaigns, ui_lang);
+   if (!selected) {
+     fearvita::RuntimeDiagnostic("startup", "campaign selector exited by user");
 --- a/project/integration/lithtech/fearvita_iltsound_vita.cpp
 +++ b/project/integration/lithtech/fearvita_iltsound_vita.cpp
 @@ -727,6 +727,23 @@
@@ -160,36 +165,49 @@
 +  return result == LT_OK;
 +}
  LTRESULT FearVita_SoundGetTimer(HLTSOUND hSound, LTFLOAT* seconds) { return g_sound_mgr.GetLogicalTimer(hSound, seconds); }
+ LTRESULT FearVita_SoundGetData(HLTSOUND hSound, int16*& sixteenBit, int8*& eightBit,
+                                 uint32* samplesPerSecond, uint32* channels) {
 --- a/lithtech-work/FEAR/ClientShellDLL/PerformanceMgr.cpp
 +++ b/lithtech-work/FEAR/ClientShellDLL/PerformanceMgr.cpp
 @@ -252,15 +252,22 @@
- HRECORD CPerformanceMgr::GetOptionRecord(uint32 nType, uint32 nGroup, uint32 nOption) const
- {
+ 
+ HRECORD	CPerformanceMgr::GetOptionRecord(uint32 nType, uint32 nGroup, uint32 nOption) const
+ {	
 -	if (nType >= kNumPerformanceTypes || nOption < GetNumOptions(nType,nGroup))
 -	{
 -		HRECORD hRec = GetGroupRecord(nType,nGroup);
 -		return DATABASE_CATEGORY( PerformanceGroup ).GETRECORDATTRIBINDEX( hRec, Options, nOption );
 -	}
 -	else
-+	// Validate all indices before following the Performance/Groups -> Options RecordLink.
++	// The retail source used `nType >= ... ||`, which can enter the record-link
++	// path for an invalid performance type.  On PC this is normally hidden by
++	// caller invariants; on the Vita database bridge it can turn a malformed or
++	// missing menu link into a bogus HRECORD.  Validate all three indices before
++	// following the Performance/Groups -> Options RecordLink.
 +	if (nType >= kNumPerformanceTypes || nGroup >= m_nNumGroups[nType] ||
 +		nOption >= GetNumOptions(nType,nGroup))
  	{
  		return NULL;
  	}
++
 +	HRECORD hRec = GetGroupRecord(nType,nGroup);
 +	if (!hRec)
 +		return NULL;
++
 +	return DATABASE_CATEGORY( PerformanceGroup ).GETRECORDATTRIBINDEX( hRec, Options, nOption );
  }
+ 
+ // ----------------------------------------------------------------------- //
 --- a/lithtech-work/FEAR/ClientShellDLL/ScreenMgr.cpp
 +++ b/lithtech-work/FEAR/ClientShellDLL/ScreenMgr.cpp
-@@ -137,6 +137,30 @@
- 	{
+@@ -138,6 +138,30 @@
  		AddScreen((eScreenID)nID);
  	}
-+
+ 
 +#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	// Audit the complete single-player/options screen tree that is reachable in
++	// the Vita executable.  Multiplayer remains a separate networking milestone
++	// because retail PC switches to a different executable for that entry.
 +	const eScreenID kCoreMenuScreens[] = {
 +		SCREEN_ID_MAIN, SCREEN_ID_SINGLE, SCREEN_ID_OPTIONS, SCREEN_ID_PROFILE,
 +		SCREEN_ID_LOAD, SCREEN_ID_SAVE, SCREEN_ID_DISPLAY, SCREEN_ID_AUDIO,
@@ -209,13 +227,42 @@
 +	}
 +	fearvita::RuntimeDiagnostic("menu-audit", std::string("core-screen-registry missing=") + std::to_string(nMissingCoreScreens));
 +#endif
++
+ 	m_HelpRect		= g_pLayoutDB->GetHelpRect();
+ 	m_HelpSize		= g_pLayoutDB->GetHelpSize();
+ 	m_HelpWidth		= (uint16)(m_HelpRect.GetWidth());
 @@ -384,6 +408,14 @@
  bool CScreenMgr::SetCurrentScreen(eScreenID screenID)
  {
  #if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	// The shipped FEAR source has a dormant CMD_KEYBOARD path but no
++	// ScreenKeyboard implementation.  If retail data ever exposes it, route it
++	// to the existing full Configure-controls screen instead of dead-ending.
 +	if (screenID == SCREEN_ID_KEYBOARD)
 +	{
 +		fearvita::RuntimeDiagnostic("screen-nav", "keyboard-alias -> ScreenConfigure");
 +		screenID = SCREEN_ID_CONFIGURE;
 +	}
  	fearvita::RuntimeDiagnostic("screen-nav", std::string("request from=") + GetScreenName(m_eCurrentScreenID) +
+ 		" to=" + GetScreenName(screenID) + " id=" + std::to_string((int)screenID));
+ #endif
+--- a/lithtech-work/FEAR/ClientShellDLL/ScreenPerformanceAdvanced.cpp
++++ b/lithtech-work/FEAR/ClientShellDLL/ScreenPerformanceAdvanced.cpp
+@@ -136,10 +136,13 @@
+ void CScreenPerformanceAdvanced::InitOptionList()
+ {
+ 	//read in the layout data we'll need
+-	static LTRect2n dlgRect = g_pLayoutDB->GetRect(m_hLayout,LDB_ScreenDialogRect);
+-	static const uint32 nDlgItemWidth = dlgRect.GetWidth() - 16;
+-	static const uint32 kColumn1 = g_pLayoutDB->GetInt32(m_hLayout,LDB_ScreenColumnWidths,2);
+-	static const uint32 kColumn0 = nDlgItemWidth - kColumn1;
++	// These values depend on the current screen's layout record.  Keeping them
++	// static caused whichever advanced screen (CPU or GPU) was built first to
++	// leak its geometry into the other one.  Resolve them per screen instance.
++	const LTRect2n dlgRect = g_pLayoutDB->GetRect(m_hLayout,LDB_ScreenDialogRect);
++	const uint32 nDlgItemWidth = dlgRect.GetWidth() - 16;
++	const uint32 kColumn1 = g_pLayoutDB->GetInt32(m_hLayout,LDB_ScreenColumnWidths,2);
++	const uint32 kColumn0 = nDlgItemWidth - kColumn1;
+ 
+ 	LTVector2n offset(8,8);
+ 

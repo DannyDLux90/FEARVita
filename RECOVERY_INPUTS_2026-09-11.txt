@@ -1,0 +1,77 @@
+FEARVita recovery inputs preserved on 2026-09-11
+
+PRIVATE TEST PACKAGE (do not commit binary/retail assets)
+FEARVita_M29AX_0.02_DPAD_TOUCH_DE_LOADING_PRIVATE_2026-09-11(1).vpk
+size=17698777
+sha256=2831de6f48dddba77416b27bbaee54dfcdb0b8a8582734978166ab292c9434a2
+VPK entries=22
+eboot.bin size=3050929
+unwrapped VELF size=14581036
+SFO title=F.E.A.R. Vita
+SFO title_id=FEAR00001
+SFO app_ver=00.02
+
+LITHTECH UPSTREAM
+lithtech-master(7).zip
+size=35270148
+sha256=9c6cab7d104301024b67d7d63d166c595a6b64012bc325232f1dbd52f05c7e4b
+archive commit comment=0eab18289bed72879eddb648d3311075b108cf46
+matches UPSTREAM_PIN.txt=yes
+
+VITASDK CORE
+vitasdk-core-2026.08.1-1-x86_64-linux-gnu.pkg.tar(20260911-191056).xz
+pkgname=vitasdk-core
+pkgver=2026.08.1-1
+arch=x86_64-linux-gnu
+size=36474052
+sha256=db824ae1eeba5ca60990ec0e3459e800657ff5569c852633135a35cd8389b69b
+depend=vdpm>=0.1.3-1
+
+VDPM x86_64
+vdpm-0.1.3-1-x86_64-linux-gnu.pkg.tar(20260911-191035).xz
+pkgver=0.1.3-1
+size=3661724
+sha256=2d2da9abe767075e04226852c7fa3e1d4ff99502ff633b1e4e1c3c2f3894da83
+
+VDPM aarch64
+vdpm-0.1.4-1-aarch64-linux-gnu.pkg.tar(20260911-191103).xz
+pkgver=0.1.4-1
+size=3878484
+sha256=9f054438726bb86bbdc39e976cfe863d5ed94e784be9276aae13145a374d8d07
+
+VITA LIBRARIES
+libvita2d-0.0.0.r188.ga8f15ab-1-vita.pkg.tar(20260911-191033).xz
+pkgver=0.0.0.r188.ga8f15ab-1
+size=27764
+sha256=d604b050e6e445e4019258a75806f24fb325e8abb8dfdc48f6c1fbaa7346fd43
+
+freetype-2.14.3-1-vita.pkg.tar(20260911-191032).xz
+pkgver=2.14.3-1
+size=516648
+sha256=f7dd4534e13bec5bb63611185f0e7269be180e9bb1a51bbb9483066093485756
+
+libjpeg-turbo-3.2.0-1-vita.pkg.tar(20260911-191032).xz
+pkgver=3.2.0-1
+size=467980
+sha256=8b4b0328c16362b006e8eeae7a6c6400558d5a6de9ccb776bf055d827533eaa7
+
+libpng-1.6.58-1-vita.pkg.tar(20260911-191032).xz
+pkgver=1.6.58-1
+size=220124
+sha256=45fd9c670fe91303b74481249dfbd6eef11f382eee094b3f72d6e97342c3ba5a
+
+zlib-1.3.2-2-vita.pkg.tar(20260911-191032).xz
+pkgver=1.3.2-2
+size=75580
+sha256=e5b601fe333edb3781c0821c8ea168448d0edb0195362fb391d60e2c0e5d423c
+
+VITASDK AUTOBUILDS SNAPSHOT SOURCE
+Autobuilds zip: autobuilds-sdk-vita_softfp-snapshot-20260828.667.1(20260911-191033).zip
+size=61497
+sha256=3ad75f03717cbc72cd232cf66e3c0b571ace33cdf1f58f77e20869dab6a181c1
+archive commit comment=7fcd2565301484ab3b86f38c6331c0f6fcbec9c1
+
+NOTES
+- The private VPK contains user-owned converted retail menu movies and campaign artwork. Their contents are not appropriate for the public repository.
+- The hashes above are sufficient to identify the exact preserved inputs supplied for recovery.
+- M29AX executable evidence is documented in M29AX_RECOVERY_2026-09-11.md.

@@ -130,7 +130,7 @@
  
 +bool CScreenWeapons::OnLeft()
 +{
-+	if (m_pSelectedWpn)
++	if (m_pSelectedWpn && GetSelectedControl() == m_pWeapons)
 +	{
 +		uint32 nIndex = m_pWeapons->GetIndex(m_pSelectedWpn);
 +		if (nIndex != CLTGUIListCtrl::kNoSelection && nIndex > 0)
@@ -151,7 +151,7 @@
 +
 +bool CScreenWeapons::OnRight()
 +{
-+	if (m_pSelectedWpn)
++	if (m_pSelectedWpn && GetSelectedControl() == m_pWeapons)
 +	{
 +		uint32 nIndex = m_pWeapons->GetIndex(m_pSelectedWpn);
 +		if (nIndex != CLTGUIListCtrl::kNoSelection && nIndex + 1 < m_pWeapons->GetNumControls())
