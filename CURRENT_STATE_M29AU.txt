@@ -1,0 +1,5 @@
+FEARVita 0.02 / M29AU
+
+Confirmed on M29AT hardware: FEAR, Extraction Point and Perseus Mandate all enter their first single-player intro world path and reach ScreenPreload. The stall was caused by the Vita frontend optimization skipping CScreenMgr::UpdateInterfaceSFX globally. ScreenPreload uses UpdateInterfaceSFX to drive FinishStartGame, so mission startup never advanced.
+
+M29AU preserves normal frontend bypass behavior but enables UpdateInterfaceSFX for PRELOAD and POSTLOAD state-machine screens. Next target: reach StartClientServer and expose the first real ObjectDLL/server/world-runtime seam.
