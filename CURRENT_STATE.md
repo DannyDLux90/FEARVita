@@ -1,15 +1,17 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AQ  
+**Internal checkpoint:** M29AR  
 **Date:** 2026-09-11
 
-The M29AP frontend/menu-video milestone is complete on hardware: F.E.A.R., Extraction Point and Perseus Mandate all reach their retail menus and play their original animated menu backgrounds. The accepted launcher/loading presentation remains unchanged.
+The M29AP three-game frontend/video milestone is complete on hardware: F.E.A.R., Extraction Point and Perseus Mandate boot to their retail menus and play their original animated menu backgrounds with retail menu music/UI sounds. That accepted presentation remains unchanged.
 
-M29AQ starts the next milestone: make every retail menu/submenu entry complete and correctly linked, with `Options -> Leistung` / Performance and the weapon options screen as the first audit targets.
+M29AR continues the menu-completeness/weapon milestone. The full reachable single-player and Options screen graph has been statically audited. Main/Single/Profile, Load/Save, Display, Audio, Game/Crosshair, Performance/Advanced CPU/Advanced GPU, Controls/Configure/Mouse/Joystick and Weapons all have registered screen targets. A runtime registry audit now catches future missing targets explicitly.
 
-The Vita StringEdit bridge now attempts a full packed SKDB v2 decode: id table, UTF-16LE value table and TOC mapping. When this succeeds, the actual retail/localized `.Strdb00p` values become authoritative instead of the earlier small hand-written language safety net. A symbolic-id fallback remains in place for unknown/invalid variants.
+The campaign selector now behaves like an actual selection UI with touch: the first tap selects and shows the frame, while a second tap starts the selected game. Left/right and touch selection use the original retail `interface\Snd\selectchange.wav`; activation uses `interface\Snd\select.wav`. The base user-owned FEAR VFS is mounted before the selector so these are the real game UI sounds rather than bundled replacements.
 
-For hardware diagnosis M29AQ also adds screen-transition/build logs, Performance command logs, and a weapon-menu audit that records each default-priority weapon record plus its short-name id, long-name id and silhouette icon. The selected retail StringDB can be exported on hardware to `ux0:data/FEARVita/debug/StringDB_<campaign>.strdb00p` if format work is still needed.
+For the Performance/Leistung tree, `CPerformanceMgr::GetOptionRecord` now validates type, group and option indices before following the DB RecordLink. M29AQ's packed SKDB v2 decoder is retained so original localized StringDB values can populate labels/help text instead of the older fallback set. The dormant Keyboard screen id aliases to the existing Configure-controls screen instead of dead-ending if a data variant exposes it.
 
-Full weapon gameplay is not claimed complete at this checkpoint; M29AQ establishes the correct retail menu/database/client-weapon linkage first.
+M29AQ's weapon-menu audit is retained as the foundation for the weapon work: campaign weapon records, name ids and silhouette icons are traced through the real WeaponDB. Full gameplay weapon behavior is not yet claimed complete.
+
+The PC Multiplayer menu belongs to a separate FEARMP executable/network browser architecture; that networking path is deliberately tracked as a separate milestone and is not counted as a completed gameplay feature in this SP/options menu pass.
