@@ -53,11 +53,11 @@ The following important blocks/TUs compile under the Vita ARM toolchain:
 - `PlayerInventory`, `PlayerLeash`, `PlayerLure`, `PlayerNodeGoto`;
 - **`PlayerObj.cpp`**.
 
-The latest full handoff rebuild is validating the same compatibility set across the target. No 533/533 success is claimed until Ninja returns rc=0.
+A complete validation run of `fearvita_fear_server_objects` now finishes **533/533 with Ninja rc=0**. The ObjectDLL compile phase is therefore complete. The full `FEARVita` target is the active frontier. Its first client-side regression was caused by FEAR `LT_PT_COMMAND`/`LT_PT_STRINGID` being visible only through the server PCH; M29AY now defines those compatibility values at the shared `ltproperty.h` layer so both ClientShell and ObjectDLL use the same contract. Client compilation proceeds beyond that point.
 
 ## Current next phase
 
-After `fearvita_fear_server_objects` is fully clean, link the ObjectDLL together with the real portable runtime/server/world implementation. The target must use the existing VFS-capable server file manager and static class binding, then replace the temporary Vita `StartGame` local-session shim with the real local server/world path.
+With `fearvita_fear_server_objects` fully clean at 533/533, complete the full ClientShell/shared/executable build and then link the ObjectDLL together with the real portable runtime/server/world implementation. The target must use the existing VFS-capable server file manager and static class binding, then replace the temporary Vita `StartGame` local-session shim with the real local server/world path.
 
 Target world path: `Worlds\\Release\\Intro`.
 
@@ -71,4 +71,4 @@ Target world path: `Worlds\\Release\\Intro`.
 
 ## New-chat continuation
 
-Read `NEXT_CHAT_M29AY.md` first, then `CURRENT_STATE_M29AY.txt`. Continue the ARM target from the first actual error. Do not regress the existing menu/gameplay controls, do not fake an ingame state, and keep FEAR/EP/PM on the same runtime level.
+Read `NEXT_CHAT_M29AY.md` first, then `CURRENT_STATE_M29AY.txt`. ObjectDLL is complete; continue the full `FEARVita` target from the first actual ClientShell/shared/link error. Do not regress the existing menu/gameplay controls, do not fake an ingame state, and keep FEAR/EP/PM on the same runtime level.
