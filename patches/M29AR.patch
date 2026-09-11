@@ -1,0 +1,221 @@
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -9,6 +9,7 @@
+ #include "ltbasedefs.h"
+ #include "fearvita_bink_vita.h"
+ #include "fearvita_stringedit_vita.h"
++#include "fearvita_iltstream_adapter.h"
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -24,9 +25,13 @@
+ #include "fearvita/runtime_diagnostics.h"
+ #include "fearvita/system_language.h"
+ 
++bool FearVita_PlayInterfaceSound(const char* name);
++
+ namespace {
+ 
+ constexpr const char* kDataRoot = "ux0:data/FEARVita/data";
++constexpr const char* kLauncherSelectSound = "interface\\Snd\\selectchange.wav";
++constexpr const char* kLauncherActivateSound = "interface\\Snd\\select.wav";
+ constexpr float kLeft = 54.0f;
+ 
+ void DrawText(vita2d_pgf* font, float x, float y, float scale, const char* text,
+@@ -331,6 +336,14 @@
+   return x >= left && x <= left + w && y >= top && y <= top + h;
+ }
+ 
++void PlayLauncherSelectSound() {
++  FearVita_PlayInterfaceSound(kLauncherSelectSound);
++}
++
++void PlayLauncherActivateSound() {
++  FearVita_PlayInterfaceSound(kLauncherActivateSound);
++}
++
+ void DrawCampaignCard(vita2d_pgf* font,
+                       const fearvita::CampaignState& campaign,
+                       float x, float y, float w, float h,
+@@ -375,7 +388,7 @@
+ 
+   DrawText(font, x + 20.0f, y + h - 14.0f, 0.52f,
+            enabled
+-             ? T(lang, "Tap or press X to start", "Antippen oder X zum Starten", "Touchez ou appuyez sur X", "Tocca o premi X", "Toca o pulsa X", "タップまたはXで開始")
++             ? T(lang, "Tap to select; tap again or X to start", "Tippen: waehlen; erneut tippen oder X: starten", "Touchez pour selectionner; retouchez ou X pour lancer", "Tocca per selezionare; tocca ancora o X per avviare", "Toca para seleccionar; otra vez o X para iniciar", "タップで選択 / 再タップまたはXで開始")
+              : T(lang, "Data not found", "Daten nicht gefunden", "Donnees non trouvees", "Dati non trovati", "Datos no encontrados", "データが見つかりません"),
+            enabled ? RGBA8(196, 196, 196, 255) : RGBA8(130, 130, 130, 255));
+ }
+@@ -413,14 +426,17 @@
+       const auto& buttons = controller.state();
+       if (buttons.Hit(fearvita::ControllerButton_Left)) {
+         selected = (selected + static_cast<int>(campaigns.size()) - 1) % static_cast<int>(campaigns.size());
++        PlayLauncherSelectSound();
+       }
+       if (buttons.Hit(fearvita::ControllerButton_Right)) {
+         selected = (selected + 1) % static_cast<int>(campaigns.size());
++        PlayLauncherSelectSound();
+       }
+       if (buttons.Hit(fearvita::ControllerButton_Circle)) {
+         running = false;
+       }
+       if (buttons.Hit(fearvita::ControllerButton_Cross) && campaigns[selected].playable_data_present()) {
++        PlayLauncherActivateSound();
+         const fearvita::CampaignState* result = &campaigns[selected];
+         vita2d_free_pgf(font);
+         return result;
+@@ -430,14 +446,25 @@
+     if (touch.hit) {
+       for (std::size_t i = 0; i < campaigns.size(); ++i) {
+         const float x = start_x + i * (card_w + gap);
+-        if (PointInRect(touch.x, touch.y, x, card_y, card_w, card_h)) {
+-          selected = static_cast<int>(i);
+-          if (campaigns[i].playable_data_present()) {
+-            const fearvita::CampaignState* result = &campaigns[i];
+-            vita2d_free_pgf(font);
+-            return result;
+-          }
++        if (!PointInRect(touch.x, touch.y, x, card_y, card_w, card_h)) continue;
++
++        const int touched = static_cast<int>(i);
++        if (touched != selected) {
++          // First tap only selects the campaign so the selection border is
++          // visibly retained.  A second tap below activates it.
++          selected = touched;
++          PlayLauncherSelectSound();
++          fearvita::RuntimeDiagnostic("launcher-touch",
++              std::string("selected=") + campaigns[i].info.display_name);
++        } else if (campaigns[i].playable_data_present()) {
++          PlayLauncherActivateSound();
++          fearvita::RuntimeDiagnostic("launcher-touch",
++              std::string("activate=") + campaigns[i].info.display_name);
++          const fearvita::CampaignState* result = &campaigns[i];
++          vita2d_free_pgf(font);
++          return result;
+         }
++        break;
+       }
+     }
+ 
+@@ -457,12 +484,12 @@
+                RGBA8(246, 240, 232, 255));
+       DrawText(font, 82.0f, 498.0f, 0.58f,
+                T(lang,
+-                 "Left/Right: select   X: start   Touch: direct selection   Circle: exit",
+-                 "Links/Rechts: waehlen   X: starten   Touch: Direktwahl   Kreis: beenden",
+-                 "Gauche/Droite : selection   X : lancer   tactile : choix direct   Rond : quitter",
+-                 "Sinistra/Destra: seleziona   X: avvia   touch: scelta diretta   Cerchio: esci",
+-                 "Izq./Der.: seleccionar   X: iniciar   tactil: seleccion directa   Circulo: salir",
+-                 "左右で選択   Xで開始   タッチで直接選択   ○で終了"),
++                 "Left/Right: select   X: start   Touch: select / tap again to start   Circle: exit",
++                 "Links/Rechts: waehlen   X: starten   Touch: waehlen / erneut tippen: starten   Kreis: beenden",
++                 "Gauche/Droite : selection   X : lancer   tactile : selection / retoucher : lancer   Rond : quitter",
++                 "Sinistra/Destra: seleziona   X: avvia   touch: seleziona / ritocca: avvia   Cerchio: esci",
++                 "Izq./Der.: seleccionar   X: iniciar   tactil: seleccionar / otra vez: iniciar   Circulo: salir",
++                 "左右で選択   Xで開始   タップで選択 / 再タップで開始   ○で終了"),
+                RGBA8(214, 214, 214, 255));
+@@ -504,7 +531,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_menu_boot.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AQ; retail SKDB strings + menu/weapon linkage audit");
++      "FEARVita 0.02 / M29AR; full menu link audit + touch selector retail sounds");
+@@ -555,6 +582,15 @@
+     fearvita::CloseRuntimeDiagnostics();
+     sceKernelExitProcess(3);
+     return 3;
++  }
++
++  // The selector uses the exact retail UI select/selectchange sounds. Mount
++  // the base FEAR VFS before presenting it so those user-owned WAVs are
++  // available before a campaign frontend has booted.
++  if (!FearVita_MountLithtechVfs(kDataRoot, nullptr)) {
++    fearvita::RuntimeDiagnostic("launcher-vfs", "base mount failed; selector remains usable without sound");
++  } else {
++    fearvita::RuntimeDiagnostic("launcher-vfs", "base mount ready for retail UI sounds");
+   }
+ 
+   const fearvita::CampaignState* selected = ShowCampaignLauncher(renderer, controller, campaigns, ui_lang);
+--- a/project/integration/lithtech/fearvita_iltsound_vita.cpp
++++ b/project/integration/lithtech/fearvita_iltsound_vita.cpp
+@@ -727,6 +727,23 @@
+   return &g_sound_mgr;
+ }
+ ILTSoundMgr* FearVita_GetSoundMgr() { return FearVita_GetClientSoundMgr(); }
++
++bool FearVita_PlayInterfaceSound(const char* name) {
++  if (!name || !*name) return false;
++
++  PlaySoundInfo psi;
++  PLAYSOUNDINFO_INIT(psi);
++  psi.m_dwFlags = PLAYSOUND_LOCAL;
++  std::strncpy(psi.m_szSoundName, name, _MAX_PATH - 1);
++  psi.m_szSoundName[_MAX_PATH - 1] = '\0';
++  psi.m_nMixChannel = PLAYSOUND_MIX_UI;
++
++  HLTSOUND handle = nullptr;
++  const LTRESULT result = g_sound_mgr.PlaySound(&psi, handle);
++  fearvita::RuntimeDiagnostic("launcher-sound",
++      std::string("name=") + name + " result=" + std::to_string(result));
++  return result == LT_OK;
++}
+ LTRESULT FearVita_SoundGetTimer(HLTSOUND hSound, LTFLOAT* seconds) { return g_sound_mgr.GetLogicalTimer(hSound, seconds); }
+--- a/lithtech-work/FEAR/ClientShellDLL/PerformanceMgr.cpp
++++ b/lithtech-work/FEAR/ClientShellDLL/PerformanceMgr.cpp
+@@ -252,15 +252,22 @@
+ HRECORD CPerformanceMgr::GetOptionRecord(uint32 nType, uint32 nGroup, uint32 nOption) const
+ {
+-	if (nType >= kNumPerformanceTypes || nOption < GetNumOptions(nType,nGroup))
+-	{
+-		HRECORD hRec = GetGroupRecord(nType,nGroup);
+-		return DATABASE_CATEGORY( PerformanceGroup ).GETRECORDATTRIBINDEX( hRec, Options, nOption );
+-	}
+-	else
++	// Validate all indices before following the Performance/Groups -> Options RecordLink.
++	if (nType >= kNumPerformanceTypes || nGroup >= m_nNumGroups[nType] ||
++		nOption >= GetNumOptions(nType,nGroup))
+ 	{
+ 		return NULL;
+ 	}
++	HRECORD hRec = GetGroupRecord(nType,nGroup);
++	if (!hRec)
++		return NULL;
++	return DATABASE_CATEGORY( PerformanceGroup ).GETRECORDATTRIBINDEX( hRec, Options, nOption );
+ }
+--- a/lithtech-work/FEAR/ClientShellDLL/ScreenMgr.cpp
++++ b/lithtech-work/FEAR/ClientShellDLL/ScreenMgr.cpp
+@@ -137,6 +137,30 @@
+ 	{
+ 		AddScreen((eScreenID)nID);
+ 	}
++
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	const eScreenID kCoreMenuScreens[] = {
++		SCREEN_ID_MAIN, SCREEN_ID_SINGLE, SCREEN_ID_OPTIONS, SCREEN_ID_PROFILE,
++		SCREEN_ID_LOAD, SCREEN_ID_SAVE, SCREEN_ID_DISPLAY, SCREEN_ID_AUDIO,
++		SCREEN_ID_GAME, SCREEN_ID_PERFORMANCE, SCREEN_ID_PERFORMANCE_CPU,
++		SCREEN_ID_PERFORMANCE_GPU, SCREEN_ID_CONTROLS, SCREEN_ID_CONFIGURE,
++		SCREEN_ID_MOUSE, SCREEN_ID_JOYSTICK, SCREEN_ID_WEAPONS,
++		SCREEN_ID_CROSSHAIR, SCREEN_ID_FAILURE, SCREEN_ID_PRELOAD, SCREEN_ID_POSTLOAD
++	};
++	uint32 nMissingCoreScreens = 0;
++	for (eScreenID eID : kCoreMenuScreens)
++	{
++		if (!GetScreenFromID(eID))
++		{
++			++nMissingCoreScreens;
++			fearvita::RuntimeDiagnostic("menu-audit", std::string("missing-core-screen=") + GetScreenName(eID));
++		}
++	}
++	fearvita::RuntimeDiagnostic("menu-audit", std::string("core-screen-registry missing=") + std::to_string(nMissingCoreScreens));
++#endif
+@@ -384,6 +408,14 @@
+ bool CScreenMgr::SetCurrentScreen(eScreenID screenID)
+ {
+ #if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	if (screenID == SCREEN_ID_KEYBOARD)
++	{
++		fearvita::RuntimeDiagnostic("screen-nav", "keyboard-alias -> ScreenConfigure");
++		screenID = SCREEN_ID_CONFIGURE;
++	}
+ 	fearvita::RuntimeDiagnostic("screen-nav", std::string("request from=") + GetScreenName(m_eCurrentScreenID) +
