@@ -53,7 +53,7 @@ The following important blocks/TUs compile under the Vita ARM toolchain:
 - `PlayerInventory`, `PlayerLeash`, `PlayerLure`, `PlayerNodeGoto`;
 - **`PlayerObj.cpp`**.
 
-A complete validation run of `fearvita_fear_server_objects` now finishes **533/533 with Ninja rc=0**. The ObjectDLL compile phase is therefore complete. The full `FEARVita` target is the active frontier. Its first client-side regression was caused by FEAR `LT_PT_COMMAND`/`LT_PT_STRINGID` being visible only through the server PCH; M29AY now defines those compatibility values at the shared `ltproperty.h` layer so both ClientShell and ObjectDLL use the same contract. Client compilation proceeds beyond that point.
+A complete validation run of `fearvita_fear_server_objects` now finishes **533/533 with Ninja rc=0**. The ObjectDLL compile phase is therefore complete. The full `FEARVita` target is the active frontier. Its first client-side regression was caused by FEAR `LT_PT_COMMAND`/`LT_PT_STRINGID` being visible only through the server PCH; M29AY now defines those compatibility values at the shared `ltproperty.h` layer so both ClientShell and ObjectDLL use the same contract. A later ClientShell regression where `compat/ltintersect.h` referenced `LTOBB` without explicitly including `ltobb.h` is also fixed; the full target proceeds beyond that point.
 
 ## Current next phase
 
