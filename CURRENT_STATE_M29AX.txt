@@ -1,0 +1,14 @@
+FEARVita 0.02 / M29AX
+2026-09-11
+
+M29AX adds native Vita retail-menu navigation without changing the canonical M29AW gameplay profile.
+
+Physical D-pad directions now map to matching UI directions whenever GS_SCREEN or GS_MENU is active. X/Triangle confirm and Circle/START return through the existing retail keyboard paths.
+
+Front touchscreen input now supplies absolute normalized coordinates and press/release edges to LithTech. Retail menus receive these through CInterfaceMgr mouse move/button handlers, while gameplay keeps the existing left/center/right touch actions.
+
+The five-page Bubble manual documents menu D-pad/touch navigation. The M29AW German fallback for the first base F.E.A.R. loading screen remains active and unchanged.
+
+Host controller and LithTech bridge smoke tests pass. Full Vita packaging still requires the pinned LithTech upstream checkout in addition to the public FEARVita overlay.
+
+The gameplay frontier remains the real ObjectDLL/server/world runtime.
