@@ -9,15 +9,17 @@ The original retail game data is **not** included. You must provide your own leg
 
 ## Current status
 
+M29AY is the active source/build checkpoint. M29AX remains the last hardware-proven VPK. M29AY is bringing the shared FEAR/EP/PM ObjectDLL/server/world runtime online and is not yet hardware validated.
+
 The three-game frontend milestone is complete on real PS Vita hardware. F.E.A.R., Extraction Point and Perseus Mandate reach their retail frontends and play their original animated menu backgrounds with retail music and UI sounds.
 
 M29AW standardized the Vita gameplay control profile across all three campaigns. M29AX keeps that gameplay layout intact and adds native retail-menu navigation: the physical D-pad follows UI directions, while the front touchscreen acts as an absolute pointer/tap source through the original LithTech menu hit-testing path. The built-in Vita Bubble manual documents both the gameplay map and menu controls.
 
-All three campaigns now reach the same accepted local `StartGame` frontier. M29AY is bringing up one shared retail ObjectDLL/server/world runtime for F.E.A.R., Extraction Point and Perseus Mandate, using the published F.E.A.R. SDK 1.08 to restore interfaces missing from the older public LithTech snapshot. There is not yet an M29AY hardware VPK; the current work is ARM/Vita compile and server-link bring-up.
+All three campaigns now reach the same accepted local `StartGame` frontier. M29AY is bringing up one shared retail ObjectDLL/server/world runtime for F.E.A.R., Extraction Point and Perseus Mandate, using the published F.E.A.R. SDK 1.08 to restore interfaces missing from the older public LithTech snapshot. `PlayerObj.cpp` and `GameServerShell.cpp` now compile for ARM/Vita, but there is not yet an M29AY hardware VPK; the current work is ObjectDLL completion and server/world link bring-up.
 
 For German Vita system language, M29AY extends the FEARVita-authored first-intro/loading fallback to all three campaign tags (`fear`, `ep`, `pm`) with campaign-specific briefing text. These fallback strings are project-authored and are not presented as official retail German localization.
 
-Start with `CURRENT_STATE.md`, `CURRENT_STATE_M29AY.txt`, and `M29AY_PROGRESS_2026-09-11.md`. The canonical reproducible M29AY delta is documented under `patches/`.
+Start with `NEXT_CHAT_M29AY.md`, `CURRENT_STATE.md`, `CURRENT_STATE_M29AY.txt`, and `M29AY_PROGRESS_2026-09-11.md`. The canonical reproducible M29AY delta is documented under `patches/`.
 
 ## Source layout
 
