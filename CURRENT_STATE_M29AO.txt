@@ -1,0 +1,23 @@
+FEARVita 0.02 / M29AO
+Date: 2026-09-11
+
+Confirmed on hardware:
+- F.E.A.R. frontend/menu works with animated H.264-cached Menu.bik background.
+- Extraction Point reaches frontend-main-ok / complete and enters its menu.
+- Perseus Mandate reaches frontend-main-ok / complete and enters its menu.
+
+Remaining frontend milestone item:
+- EP/PM animated menu backgrounds.
+
+Exact retail menu movies from M29AN hardware logs:
+- EP: VideosXP\\Menu.bik, 512x512, 420 frames, 30 fps -> video_cache/ep/videosxp/menu.mp4
+- PM: VideosXP2\\MenuXP2.bik, 640x480, 466 frames, 29.97 fps -> video_cache/pm/videosxp2/menuxp2.mp4
+
+M29AO fixes PM menu classification/export by treating any .bik with a basename beginning with 'menu' as a looping frontend menu movie. It exports PM as ux0:data/FEARVita/debug/Menu_pm.bik. EP continues to export as Menu_ep.bik.
+
+Final milestone flow:
+1. Run M29AO once in EP and PM.
+2. Copy Menu_ep.bik and Menu_pm.bik from ux0:data/FEARVita/debug/.
+3. Convert the exact user-owned files to H.264 MP4.
+4. Package into the two campaign-isolated cache paths.
+5. Hardware-verify visible looping backgrounds in both add-on menus.
