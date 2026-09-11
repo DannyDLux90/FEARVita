@@ -1,17 +1,15 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AU  
+**Internal checkpoint:** M29AV  
 **Date:** 2026-09-11
 
-The three-game frontend/menu-video milestone is complete on real PS Vita hardware: **F.E.A.R.**, **Extraction Point** and **Perseus Mandate** all reach their retail menus and play their original animated menu backgrounds with retail menu music/UI sounds. Vita-system-language localization is restored and the accepted frontend presentation remains unchanged.
+The three-game frontend/menu-video milestone remains complete on real PS Vita hardware: **F.E.A.R.**, **Extraction Point** and **Perseus Mandate** reach their retail menus with their original animated menu backgrounds, retail menu audio and Vita-system-language localization.
 
-M29AT hardware testing proved the first single-player world path is now selected correctly in all three campaigns. F.E.A.R., Extraction Point and Perseus Mandate each resolve `Worlds\\Release\\Intro`, confirm the world exists, reset the player camera and switch successfully to `ScreenPreload`. The separate per-campaign logs (`fear_fear.log`, `fear_ep.log`, `fear_pm.log`) are working as intended.
+M29AU hardware testing proved the preload state machine is now running correctly. Base F.E.A.R. selects `Worlds\\Release\\Intro`, enters the real loading screen, executes `FinishStartGame`, accepts the local `STARTGAME_NORMAL` bridge and completes the client-side loading handshake. It then waits indefinitely at the expected missing **ObjectDLL/server/world runtime** boundary. The current loading stall is therefore no longer a menu/preload bug and is not a missing world file.
 
-The M29AT stall was not a missing world file. The Vita frontend optimization intentionally skipped `CScreenMgr::UpdateInterfaceSFX()` on all retail screens to avoid still-partial ClientFX/model services. `CScreenPreload::UpdateInterfaceSFX()` is special, however: it drives the mission start state machine (`FinishStartGame` -> `StartClientServer` -> client loading handshake). Because that update was skipped, all three campaigns remained on ScreenPreload while the outer retail loop continued indefinitely.
+M29AV adds a Killzone-inspired Vita gameplay control preset and native touch input: left/right sticks move/look, R fires, L aims, X jumps, Circle crouches, Square reloads, Triangle activates, D-pad up/down/left/right provides SlowMo/grenade/previous weapon/next weapon, front touch provides flashlight/melee/next weapon zones, and rear touch double-tap + hold enables sprint. Automatic sprint based only on analog-stick magnitude has been removed.
 
-M29AU preserves the stable frontend behavior for normal screens but enables retail `UpdateInterfaceSFX()` for the state-machine screens `SCREEN_ID_PRELOAD` and `SCREEN_ID_POSTLOAD`. The next hardware target is therefore to move beyond preload into `FinishStartGameFromLevel`, the local `STARTGAME_NORMAL` bridge and the real server/world-runtime frontier.
+The PC binding layer has no physical Vita device records yet, so M29AV supplies the actual fixed Vita command labels wherever FEAR would otherwise display `key unassigned`. The Configure Controls screen uses the same labels. Generic loading-screen framework strings are now covered by the Vita system-language overlay, and `loading-localize` diagnostics record the exact dynamic mission name/briefing/help StringDB ids for any remaining campaign-specific English text.
 
-The Weapons options priority editor from M29AT is retained: X selects a weapon, Left/Right reorders it, and the existing retail profile save/apply path persists the list.
-
-The full FEAR ObjectDLL/server runtime is still not claimed complete. M29AU is an authentic loading-state handoff checkpoint intended to expose the next real ObjectDLL/world-loading blocker rather than mask it.
+ObjectDLL bring-up also advanced: FEAR's later property macros with optional editor-description strings are now accepted by the public SDK compile path. The next server compile frontier exposes the real missing private contracts (`ICommandDef`/`ICommandMessageDef`, `ILTServer::GetClientObject`, shadow-LOD APIs, `LTOBB`, and related server compatibility work). Playable gameplay is not yet claimed.
