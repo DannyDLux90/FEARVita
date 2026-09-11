@@ -1,101 +1,102 @@
-# FEARVita M29AY — shared ObjectDLL/world-runtime checkpoint
+FEARVita M29AY — NEXT-CHAT CANONICAL STATE — 2026-09-11
 
-Date: 2026-09-11
+GOAL
+- Move F.E.A.R., Extraction Point and Perseus Mandate together from the accepted local StartGame handshake into the real ObjectDLL/server/world runtime.
+- Do not fake GS_PLAYING. Instantiate the real world/server path.
 
-M29AY continues from the full Vita-build-verified M29AX frontend milestone. Its goal is to move F.E.A.R., Extraction Point and Perseus Mandate together from the accepted local StartGame handshake into the real ObjectDLL/server/world runtime.
+BASE / PINS
+- Last hardware-proven frontend baseline: M29AX.
+- Public LithTech pin: jsj2008/lithtech @ 0eab18289bed72879eddb648d3311075b108cf46.
+- F.E.A.R. SDK 1.08 reference: xfw5/Fear-SDK-1.08 @ 2fc3557b0037d5fe01ac607b907d4b8511b9e4b2.
+- GitHub branch: m29ay-objectdll-world-runtime.
+- ObjectDLL target: 533 retail Game_ServerShell translation units, _FINAL=1.
+- Excluded as non-retail/orphaned: AIGoalGotoCombat.cpp, MeleeWeaponModel.cpp.
 
-## Campaign parity
+CAMPAIGN PARITY
+- Real Vita logs show FEAR/EP/PM all reaching retail frontend -> campaign data selected -> local StartGame accepted -> waiting for real ObjectDLL/server/world runtime.
+- One shared server/runtime implementation must be used for all three.
+- Campaign-specific differences should remain archive/database/localization overlays only.
 
-Fresh M29AX hardware logs show all three campaigns reaching the same technical frontier: retail frontend active, campaign archives/databases selected, local start accepted, then waiting for real ObjectDLL/server/world runtime. M29AY therefore implements one shared server/runtime foundation and keeps campaign-specific behavior limited to archive/database overlays and localization data.
+ADDON MISSION / LOADING SCREEN LOCALIZATION
+- German Vita fallback now covers fear/ep/pm for Worlds\\Release\\Intro.
+- Common labels: INTERVALL 01, EINFÜHRUNG.
+- Common hint: Tipp: SELECT öffnet die Missionsziele. Linker Stick: bewegen. Rechter Stick: umsehen.
+- Campaign-specific fallback briefing:
+  FEAR: F.E.A.R.: Einsatzdaten werden vorbereitet.
+  EP: Extraction Point: Einsatzdaten werden vorbereitet.
+  PM: Perseus Mandate: Einsatzdaten werden vorbereitet.
+- These are FEARVita-authored fallbacks, not claimed as official retail German strings.
 
-## German addon mission/loading screens
+ARM OBJECTDLL STATUS
+- PlayerObj.cpp: PASS on ARM/Vita.
+- GameServerShell.cpp: PASS on ARM/Vita.
+- Character.cpp / CharacterHitBox.cpp / CommandMgr.cpp: PASS.
+- DEditHook.cpp: PASS.
+- Door.cpp / DynamicSectorVolume.cpp: PASS.
+- GameStartPoint.cpp / GameStartPointMgr.cpp: PASS.
+- GameWorldEditImpl.cpp / GameWorldPackerImpl.cpp: PASS.
+- KeyFramer.cpp / KeyframeToRigidBody.cpp: PASS.
+- LightBase/Cube/Directional/Editor/Point/PointFill/Spot: PASS.
+- NavMarker / ObjectTemplateMgr / PickupItem / PlayerInventory / PlayerLeash / PlayerLure / PlayerNodeGoto: PASS.
+- Latest full handoff rebuild has progressed through these same blocks and continues through remaining server objects. Do not claim 533/533 until the target returns rc=0.
 
-The Vita German-system-language intro fallback now covers campaign tags `fear`, `ep` and `pm` for `Worlds\\Release\\Intro`.
+IMPORTANT IMPLEMENTED COMPATIBILITY
+- FEAR class/property registration macros + command/string-id properties.
+- GenericProp/GetType/getters/setters; GenericPropList FEAR Get*/AddProp helpers.
+- IAggregate type-name constructor + GetType.
+- LTOBB, LTSphere, Point_Segment_DistSqr, OBB_Point, AABB_Point.
+- ILTModel keyframe count/node transform and GetPhysicsVisNode fallback.
+- ILTServer real GetClientObject and SetClientObject.
+- ObjectCreateStruct physics group + FEAR child-model mapping.
+- Server time helpers (game time and real time), HMODELANIM message IO, LTVector::Clamp.
+- FEAR object unguaranteed 32-bit payload wired end-to-end: LTObject field -> server packet -> client receive; PlayerObj uses it for compressed Pitch/Roll.
+- SFX save/load message IDs and GetObjectSFXMessage compatibility.
+- New FEAR OnObjectCreated(GenericPropList*, reason) path dispatched by server while preserving old callback compatibility.
+- GameSpy/content-transfer/UDP features are explicitly offline/unavailable for Vita SP rather than faked.
+- Sector ID lookup returns LT_NOTFOUND because the older public world runtime has no Jupiter-EX sector table; no fake sector IDs.
+- FLAG_DELAYCLIENTVISIBLE is intentionally a no-op on the old runtime because FEAR bit 8 collides with old FLAG_FULLPOSITIONRES.
+- ObjectTemplate scalar scale is serialized as x and restored uniformly to LTVector(s,s,s), preserving old runtime ABI.
+- FEAR/Jupiter light metadata missing from old renderer is compile-compatible; unsupported cosmetic fields are no-op/default, not gameplay state.
 
-Common labels:
-- `INTERVALL 01`
-- `EINFÜHRUNG`
-- `Tipp: SELECT öffnet die Missionsziele. Linker Stick: bewegen. Rechter Stick: umsehen.`
+KNOWN CAVEATS TO VERIFY AT REAL WORLD LOAD
+- FEAR SDK 1.08 property-type numbering differs from the older public LithTech snapshot. Compile adapters exist, but actual world-property decoding must be verified during real .dat instantiation.
+- ObjectCreateStruct physics group exists for source compatibility; ensure the real server object creation path applies it where needed.
+- Physics vis-node currently falls back to model root because old public model data lacks the newer explicit field.
+- Sector visibility optimization is unavailable until/if the old world runtime is extended with Jupiter-EX sector IDs.
+- New light metadata is only partially represented by the old runtime renderer.
 
-Campaign-specific FEARVita fallback briefing:
-- F.E.A.R.: `F.E.A.R.: Einsatzdaten werden vorbereitet.`
-- Extraction Point: `Extraction Point: Einsatzdaten werden vorbereitet.`
-- Perseus Mandate: `Perseus Mandate: Einsatzdaten werden vorbereitet.`
+LOCAL WORKSPACE USED IN THIS CHAT
+- Project/overlay source export: /mnt/data/m29ay_src
+- Patched LithTech work tree: /mnt/data/m29ay_lithtech/lithtech-master
+- Vita build dir: /mnt/data/m29ay_build
+- VitaSDK: /mnt/data/vitasdk_m29ay
+- Latest handoff build log: /mnt/data/m29ay_handoff_build.log
 
-These are FEARVita-authored fallback strings, not claimed to be official retail German localization.
-
-## ObjectDLL target alignment
-
-Pinned upstream remains `jsj2008/lithtech` commit `0eab18289bed72879eddb648d3311075b108cf46`, with `lithtech-overlay/` applied.
-
-The Vita server target is aligned to the original retail `Game_ServerShell.vcproj` rather than blindly compiling every ObjectDLL source. `AIGoalGotoCombat.cpp` and `MeleeWeaponModel.cpp` are excluded because neither belongs to the retail server project and both target older/incompatible API generations.
-
-Configured translation-unit counts from the current CMake configure:
-- ClientShell: 223
-- ObjectDLL/server: 533
-- ClientFX: 31
-- Shared: 69
-- LTGUI: 20
-
-The server target uses `_FINAL=1` to match retail behavior and avoid editor/debug-only dependencies. Full-game attachment now mirrors the already-proven menu attachment set and additionally attaches the 533 server objects, so disabling `FEARVITA_MENU_LINK_ONLY` no longer drops client/shared/LTGUI/ClientFX/runtime support objects from the final executable.
-
-## FEAR SDK 1.08 compatibility
-
-The public LithTech pin predates interfaces required by the retail F.E.A.R. ObjectDLL. M29AY restores those contracts against the public runtime, using the published F.E.A.R. SDK 1.08 (`xfw5/Fear-SDK-1.08` @ `2fc3557b0037d5fe01ac607b907d4b8511b9e4b2`) as reference instead of inventing gameplay behavior.
-
-Implemented so far includes:
-- retail command/class/property metadata adapters (`ICommandDef`, `ICommandMessageDef`, command/string-id properties and FEAR property flags);
-- `LTOBB`, `LTSphere`, `IGameWorldPacker`, output-converter contracts and retail `_FINAL` assert macros;
-- FEAR memory-category `ObjectBank<T, category>` compatibility;
-- real `ILTServer::GetClientObject(HCLIENT)` backed by the existing server client/object relationship;
-- server shadow-LOD adapters and global `SendSFXMessage(msg, flags)` broadcast form;
-- FEAR-style `GenericProp` / `GenericPropList` accessors including string/bool/command/color/rotation;
-- reference overloads for older pointer-based server APIs;
-- `ObjectCreateStruct` physics group and child-model compatibility;
-- C++17 fixes for old MSVC allocators, dependent-base lookup and invalid pointer `return false` sites;
-- `LTIntersect::Point_Segment_DistSqr` and `LTIntersect::OBB_Point` with SDK semantics;
-- `ILTModel::GetAnimKeyFrames` / `GetAnimNodeTransform` compatibility;
-- uniform `ILTServer::SetObjectScale` mapped to the existing vector-scale runtime;
-- `ILTServer::GetRealTimeMS` backed by Vita monotonic process time;
-- `ILTMessage_Write::WriteHMODELANIM` and `ILTMessage_Read::ReadHMODELANIM` using the SDK `WriteType/ReadType` encoding;
-- `TVector3::Clamp(min,max)` component-wise SDK behavior.
-
-Important caveat: F.E.A.R. SDK 1.08 property type numbering differs from the older public runtime around FLAGS/BOOL/LONGINT/ROTATION/COMMAND/STRINGID. Compile compatibility is in place, but property decoding must be verified during real world instantiation before claiming gameplay correctness.
-
-## ARM validation frontier
-
-CMake configures successfully with `FEARVITA_MENU_LINK_ONLY=OFF` and all 533 retail server translation units.
-
-A complete ARM/Vita clean compile reached the AI weapon block at approximately 374/533 before exposing the next SDK delta. Everything before it compiled, including AI.cpp, actions/goals, NavMesh generation, NavMesh links, nodes, path manager, sensors, sounds, squads, states and target-selection code.
-
-The 374/533 failures were all central SDK conveniences rather than gameplay logic:
-- `ILTServer::GetRealTimeMS`;
-- `ILTMessage::{Write,Read}HMODELANIM`;
-- `LTVector::Clamp`.
-
-Those three contracts are now implemented from SDK 1.08 semantics. Because they modify widely included headers, Ninja intentionally restarted a full clean server recompile. This checkpoint therefore records **374/533 as the last proven frontier** and a new full validation pass in progress. There is not yet a completed ObjectDLL link and there is no M29AY VPK yet.
-
-## Reproduce
-
-```sh
+REPRODUCE
 export VITASDK=/path/to/vitasdk
 export PATH="$VITASDK/bin:$PATH"
-
 cmake -S project -B build-vita -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
+  -DCMAKE_BUILD_TYPE=Release \
   -DFEARVITA_ENABLE_GAME_MODULES=ON \
   -DFEARVITA_MENU_LINK_ONLY=OFF \
-  -DFEARVITA_LITHTECH_ROOT=/path/to/patched/lithtech \
-  -DCMAKE_BUILD_TYPE=Release
+  -DFEARVITA_LITHTECH_ROOT=/path/to/patched/lithtech
+ninja -C build-vita -j6 fearvita_fear_server_objects
 
-ninja -C build-vita fearvita_fear_server_objects -j6
-```
+NEXT STEPS
+1. Read NEXT_CHAT_M29AY.md and latest build log/frontier.
+2. Continue fearvita_fear_server_objects to a real rc=0 / 533 retail TUs compiled.
+3. Regenerate/update the canonical incremental M29AY patch if more source changes are needed.
+4. Add/finish a Vita runtime-server/world object target based on upstream runtime/server CMake source list, using Vita replacements instead of Windows/Linux sys files.
+5. Ensure full-game attach retains client/shared/LTGUI/ClientFX/support objects plus ObjectDLL/runtime-server objects.
+6. Replace project/integration/lithtech/fearvita_iltclient_vita.cpp StartGame local-session shim with the real local server StartupLocal/DoStartWorld path.
+7. Make GetClientObject on the client side reflect the real local server client object.
+8. Instantiate Worlds\\Release\\Intro through real server_filemgr VFS and CServerMgr::DoStartWorld/LoadWorld/LoadObjects.
+9. Verify world property decoding, physics group handling, Player object creation, and start-level messages.
+10. Only then build a new private VPK and hardware-test FEAR/EP/PM with fresh per-campaign logs.
 
-## Next-chat handoff
-
-1. Start from GitHub branch `m29ay-objectdll-world-runtime`.
-2. Read `CURRENT_STATE_M29AY.txt`, this file and `patches/M29AY.patch` first.
-3. Recreate upstream commit `0eab18289bed72879eddb648d3311075b108cf46`, apply `lithtech-overlay/`, then configure with `FEARVITA_MENU_LINK_ONLY=OFF`.
-4. Continue `fearvita_fear_server_objects` from the first ARM compiler error. Prefer central SDK/runtime adapters verified against F.E.A.R. SDK 1.08 over per-callsite stubs.
-5. After all 533 server TUs compile, build the complete executable, resolve real link/runtime symbols, instantiate `Worlds\\Release\\Intro`, and advance the local path through the real start-level messages.
-6. Keep F.E.A.R., Extraction Point and Perseus Mandate on the same runtime implementation; only archive/database/localization selection should diverge.
-7. Do not claim hardware validation until a new VPK is tested on a real Vita and fresh per-campaign logs are supplied.
+DO NOT
+- Do not fake an ingame state transition.
+- Do not regress M29AW/M29AX gameplay/menu controls.
+- Do not advance FEAR only while leaving EP/PM on an older runtime path.
+- Do not claim hardware validation until a new VPK has been tested on a real Vita.
