@@ -1,0 +1,11 @@
+FEARVita 0.02 / M29AP
+Date: 2026-09-11
+
+M29AP packages the user-owned retail menu-video conversions for all three campaigns in the private hardware-test VPK. F.E.A.R. already works; EP and PM now also have campaign-isolated H.264 caches at the exact paths requested by the runtime.
+
+EP: VideosXP\\Menu.bik -> video_cache/ep/videosxp/menu.mp4 (512x512, 420 frames, 30 fps, 14.000 s)
+PM: VideosXP2\\MenuXP2.bik -> video_cache/pm/videosxp2/menuxp2.mp4 (640x480, 466 frames, 29.97 fps, 15.548882 s)
+
+Both expansion Binks contain no audio. The retail menus request Music\\IntroIntLp1v2.wav separately, so original retail music and UI sounds remain in use.
+
+Acceptance: both expansion logs must show AvPlayer add-source result=0 and first-frame, with visible looping backgrounds. If confirmed, the three-game frontend/menu milestone is complete.
