@@ -1,15 +1,15 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AV  
+**Internal checkpoint:** M29AW  
 **Date:** 2026-09-11
 
-The three-game frontend/menu-video milestone remains complete on real PS Vita hardware: **F.E.A.R.**, **Extraction Point** and **Perseus Mandate** reach their retail menus with their original animated menu backgrounds, retail menu audio and Vita-system-language localization.
+The three-game frontend/menu-video milestone is complete on real PS Vita hardware: **F.E.A.R.**, **Extraction Point** and **Perseus Mandate** reach their retail menus and play their original animated menu backgrounds with retail menu music/UI sounds.
 
-M29AU hardware testing proved the preload state machine is now running correctly. Base F.E.A.R. selects `Worlds\\Release\\Intro`, enters the real loading screen, executes `FinishStartGame`, accepts the local `STARTGAME_NORMAL` bridge and completes the client-side loading handshake. It then waits indefinitely at the expected missing **ObjectDLL/server/world runtime** boundary. The current loading stall is therefore no longer a menu/preload bug and is not a missing world file.
+M29AV hardware testing proved the base-game loading state machine now reaches `FinishStartGame`, accepts the Vita `STARTGAME_NORMAL` local-session bridge and advances to the explicit `waiting-for-world/server-object-runtime` frontier. The remaining blocker to entering the first mission is therefore the real FEAR ObjectDLL/server/world runtime rather than ScreenPreload.
 
-M29AV adds a Killzone-inspired Vita gameplay control preset and native touch input: left/right sticks move/look, R fires, L aims, X jumps, Circle crouches, Square reloads, Triangle activates, D-pad up/down/left/right provides SlowMo/grenade/previous weapon/next weapon, front touch provides flashlight/melee/next weapon zones, and rear touch double-tap + hold enables sprint. Automatic sprint based only on analog-stick magnitude has been removed.
+M29AW makes the Killzone-inspired Vita control map the canonical default profile for all three campaigns. **Restore Defaults** loads exactly this map; leaving the PC-oriented Configure screen can no longer erase the Vita symbolic bindings. The layout includes both the front touchscreen and rear touchpad.
 
-The PC binding layer has no physical Vita device records yet, so M29AV supplies the actual fixed Vita command labels wherever FEAR would otherwise display `key unassigned`. The Configure Controls screen uses the same labels. Generic loading-screen framework strings are now covered by the Vita system-language overlay, and `loading-localize` diagnostics record the exact dynamic mission name/briefing/help StringDB ids for any remaining campaign-specific English text.
+The Vita Bubble manual has been refreshed from the old M16 four-page manual to a five-page current guide. It documents installation/data layout, selector behavior, per-campaign logs and the complete default control map. The pages are reproducible with `project/tools/generate_vita_manual.py`.
 
-ObjectDLL bring-up also advanced: FEAR's later property macros with optional editor-description strings are now accepted by the public SDK compile path. The next server compile frontier exposes the real missing private contracts (`ICommandDef`/`ICommandMessageDef`, `ILTServer::GetClientObject`, shadow-LOD APIs, `LTOBB`, and related server compatibility work). Playable gameplay is not yet claimed.
+The current Steam distribution of F.E.A.R. exposes English game-interface data. M29AW therefore uses a FEARVita-authored German fallback for the first **base-game** load screen when the Vita system language is German; it does not claim those strings are official retail German localization and does not apply base-game text to EP or PM. Loading diagnostics now report mission, level, briefing and help StringDB ids so later expansion localization can be implemented against the real ids.
