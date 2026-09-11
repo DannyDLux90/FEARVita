@@ -1,0 +1,30 @@
+FEARVita 0.02 / M29AQ
+2026-09-11
+
+M29AP frontend/menu-video milestone: COMPLETE on hardware.
+- F.E.A.R., Extraction Point and Perseus Mandate all enter their retail menus.
+- All three original animated menu backgrounds play through the campaign-isolated H.264/SceAvPlayer cache.
+- Accepted selector/loading visual flow is unchanged.
+
+New milestone: menu completeness + weapon linkage.
+
+M29AQ begins by replacing the old symbolic-only StringEdit handling with a packed SKDB v2 decoder. The retail .Strdb00p id table, packed UTF-16 string table and TOC are decoded so retail/localized menu strings can become authoritative instead of relying on the small system-language safety-net table. If the packed format fails validation the existing symbolic-id fallback remains active so the frontend can still boot.
+
+M29AQ also adds navigation/build diagnostics for all retail screens, focused diagnostics for the Performance screen, and a weapon-menu audit that logs each default-priority weapon record plus short-name id, long-name id and silhouette icon.
+
+Hardware test focus:
+- Options -> Leistung / Performance
+- Advanced CPU and Advanced GPU submenus
+- Options -> Waffen / Weapons
+- repeat in F.E.A.R., Extraction Point and Perseus Mandate where practical
+
+Expected successful SKDB log:
+  [stringedit-packed] version=2 ... resolved=<entryCount>
+  [stringedit] retail SKDB values decoded; retail menu strings authoritative
+
+For reverse-engineering fallback, the selected retail StringDB is exported on Vita to:
+  ux0:data/FEARVita/debug/StringDB_fear.strdb00p
+  ux0:data/FEARVita/debug/StringDB_ep.strdb00p
+  ux0:data/FEARVita/debug/StringDB_pm.strdb00p
+
+Weapon gameplay is not claimed complete in M29AQ. This checkpoint establishes exact menu labels/navigation evidence and audits the retail weapon database/client linkage before the gameplay weapon pipeline is expanded.
