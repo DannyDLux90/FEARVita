@@ -1,0 +1,19 @@
+FEARVita 0.02 / M29AR
+2026-09-11
+
+M29AP three-game animated retail frontend milestone: complete on hardware.
+M29AR next milestone focus: complete SP/options menus and weapon linkage.
+
+Selector changes:
+- first touch selects/highlights; second touch starts
+- retail selectchange.wav on selection
+- retail select.wav on activation
+- base FEAR VFS pre-mounted for launcher UI audio
+
+Menu completeness pass:
+- all reachable SP/options targets statically audited and runtime registry-checked
+- dormant Keyboard target aliases to Configure instead of a missing screen
+- PerformanceMgr option RecordLink bounds corrected
+- M29AQ packed StringDB decoder and weapon audit retained
+
+Separate scope: PC Multiplayer uses a separate executable/network stack and is not claimed complete by this single-player menu milestone.
