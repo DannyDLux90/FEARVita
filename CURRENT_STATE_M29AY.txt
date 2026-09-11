@@ -28,6 +28,7 @@ ADDON MISSION / LOADING SCREEN LOCALIZATION
 - These are FEARVita-authored fallbacks, not claimed as official retail German strings.
 
 ARM OBJECTDLL STATUS
+- FULL RETAIL OBJECTDLL TARGET: 533/533 ARM/Vita PASS, ninja rc=0.
 - PlayerObj.cpp: PASS on ARM/Vita.
 - GameServerShell.cpp: PASS on ARM/Vita.
 - Character.cpp / CharacterHitBox.cpp / CommandMgr.cpp: PASS.
@@ -38,7 +39,8 @@ ARM OBJECTDLL STATUS
 - KeyFramer.cpp / KeyframeToRigidBody.cpp: PASS.
 - LightBase/Cube/Directional/Editor/Point/PointFill/Spot: PASS.
 - NavMarker / ObjectTemplateMgr / PickupItem / PlayerInventory / PlayerLeash / PlayerLure / PlayerNodeGoto: PASS.
-- Latest full handoff rebuild has progressed through these same blocks and continues through remaining server objects. Do not claim 533/533 until the target returns rc=0.
+- Full FEARVita executable build is now the active frontier. The first client rebuild error was FEAR LT_PT_COMMAND/LT_PT_STRINGID visibility in ltproperty.h; those compatibility values are now visible to both client and server, and the ClientShell rebuild proceeds beyond that error.
+- No final executable link/VPK yet.
 
 IMPORTANT IMPLEMENTED COMPATIBILITY
 - FEAR class/property registration macros + command/string-id properties.
@@ -70,7 +72,8 @@ LOCAL WORKSPACE USED IN THIS CHAT
 - Patched LithTech work tree: /mnt/data/m29ay_lithtech/lithtech-master
 - Vita build dir: /mnt/data/m29ay_build
 - VitaSDK: /mnt/data/vitasdk_m29ay
-- Latest handoff build log: /mnt/data/m29ay_handoff_build.log
+- ObjectDLL handoff log: /mnt/data/m29ay_handoff_build.log (rc=0)
+- Full executable build log: /mnt/data/m29ay_full_handoff.log
 
 REPRODUCE
 export VITASDK=/path/to/vitasdk
@@ -82,10 +85,11 @@ cmake -S project -B build-vita -G Ninja \
   -DFEARVITA_MENU_LINK_ONLY=OFF \
   -DFEARVITA_LITHTECH_ROOT=/path/to/patched/lithtech
 ninja -C build-vita -j6 fearvita_fear_server_objects
+ninja -C build-vita -j6 FEARVita
 
 NEXT STEPS
-1. Read NEXT_CHAT_M29AY.md and latest build log/frontier.
-2. Continue fearvita_fear_server_objects to a real rc=0 / 533 retail TUs compiled.
+1. Read NEXT_CHAT_M29AY.md and latest full-build log/frontier.
+2. ObjectDLL is DONE at 533/533. Continue the full `FEARVita` target from its first ClientShell/shared/link error.
 3. Regenerate/update the canonical incremental M29AY patch if more source changes are needed.
 4. Add/finish a Vita runtime-server/world object target based on upstream runtime/server CMake source list, using Vita replacements instead of Windows/Linux sys files.
 5. Ensure full-game attach retains client/shared/LTGUI/ClientFX/support objects plus ObjectDLL/runtime-server objects.
