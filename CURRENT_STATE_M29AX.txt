@@ -1,0 +1,32 @@
+FEARVita 0.02 / M29AX
+Recovered 2026-09-11 from preserved private VPK after chat-state loss.
+
+CONFIRMED BUILD MARKER
+FEARVita 0.02 / M29AX; D-pad + touchscreen retail-menu navigation + German loading fallback
+
+CONFIRMED M29AX INPUT/NAVIGATION EVIDENCE
+- Vita controller/backend marker: vita-scectrl-touch-m29ax
+- Vita touch module present: SceTouch
+- Campaign selector supports Left/Right selection, X start, touch select, second tap start, Circle exit.
+- launcher-touch diagnostics record selected= and activate=.
+
+RETAINED M29AW FEATURES SEEN IN THE M29AX EXECUTABLE
+- canonical Killzone-style Vita control profile
+- Restore Defaults canonical-profile path
+- front touchscreen and rear-touch gameplay bindings
+- German base-game Intro loading fallback
+- loading-localize diagnostics
+- local STARTGAME_NORMAL/client handshake reaching waiting-for-world/server-object-runtime
+
+RECOVERY IDENTITY
+Private VPK SHA-256:
+2831de6f48dddba77416b27bbaee54dfcdb0b8a8582734978166ab292c9434a2
+
+LithTech upstream recovered from lithtech-master(7).zip:
+0eab18289bed72879eddb648d3311075b108cf46
+This matches UPSTREAM_PIN.txt exactly.
+
+IMPORTANT
+The M29AX binary behavior is recovered, but the exact M29AW -> M29AX source delta was not present in GitHub and cannot be claimed as recovered yet. Do not replace the behavioral evidence with a guessed patch. Recreate the Vita D-pad/touch navigation source against the M29AW patch stack and validate against this known M29AX package/hardware behavior.
+
+Private retail-derived movies/artwork from the VPK are intentionally not committed.
