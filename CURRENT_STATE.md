@@ -1,17 +1,19 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AX  
+**Internal checkpoint:** M29AY  
 **Date:** 2026-09-11
 
-The three-game frontend/menu-video milestone is complete on real PS Vita hardware: **F.E.A.R.**, **Extraction Point** and **Perseus Mandate** reach their retail menus and play their original animated menu backgrounds with retail menu music/UI sounds.
+The three-game frontend milestone remains hardware-proven: **F.E.A.R.**, **Extraction Point** and **Perseus Mandate** reach their retail menus with the canonical M29AW Vita gameplay controls and the M29AX D-pad/front-touch menu navigation.
 
-M29AV hardware testing proved the base-game loading state machine now reaches `FinishStartGame`, accepts the Vita `STARTGAME_NORMAL` local-session bridge and advances to the explicit `waiting-for-world/server-object-runtime` frontier. The remaining blocker to entering the first mission is therefore the real FEAR ObjectDLL/server/world runtime rather than ScreenPreload.
+Fresh M29AX hardware logs place all three campaigns at the same next frontier: campaign data selection and the local `StartGame` path succeed, then execution needs the real **ObjectDLL/server/world runtime**. M29AY therefore develops one shared server/runtime foundation for all three games instead of advancing only the base campaign.
 
-M29AW makes the Killzone-inspired Vita control map the canonical default profile for all three campaigns. **Restore Defaults** loads exactly this map; leaving the PC-oriented Configure screen can no longer erase the Vita symbolic bindings. The layout includes both the front touchscreen and rear touchpad.
+M29AY also extends the FEARVita-authored German intro/loading fallback to campaign tags `fear`, `ep` and `pm` for `Worlds\\Release\\Intro`. The common labels are `INTERVALL 01` and `EINFÜHRUNG`, with campaign-specific FEARVita briefing text. These strings are not claimed as official retail German localization.
 
-M29AX keeps that gameplay map unchanged and adds frontend-specific input routing. The physical D-pad is translated to matching retail UI directions in `GS_SCREEN` and `GS_MENU`, and front-touch coordinates/press edges are passed through the existing `CInterfaceMgr` mouse hit-testing path. Gameplay touch zones remain flashlight/melee/next-weapon.
+The pinned upstream remains `jsj2008/lithtech` commit `0eab18289bed72879eddb648d3311075b108cf46`. The Vita ObjectDLL target is aligned to the original retail server project and currently contains **533** translation units with `_FINAL=1`; `AIGoalGotoCombat.cpp` and `MeleeWeaponModel.cpp` are excluded because they are not part of the original `Game_ServerShell.vcproj`.
 
-The Vita Bubble manual has been refreshed from the old M16 four-page manual to a five-page current guide. It documents installation/data layout, selector behavior, per-campaign logs and the complete default control map. The pages are reproducible with `project/tools/generate_vita_manual.py`.
+The public LithTech snapshot predates several F.E.A.R.-specific SDK interfaces. M29AY is restoring those contracts against the existing runtime using the published **F.E.A.R. SDK 1.08** as the reference. Implemented compatibility already includes command/class/property metadata, `LTOBB`, ObjectBank mapping, a real `ILTServer::GetClientObject`, shadow-LOD compatibility, global SFX broadcast, FEAR-style GenericProp accessors, reference-form server calls, ObjectCreateStruct physics/child-model handling, scalar `LTIsNaN`, the C++17 `CRange<T>` fix and `LTIntersect::Point_Segment_DistSqr`.
 
-The current Steam distribution of F.E.A.R. exposes English game-interface data. M29AW/M29AX therefore use a FEARVita-authored German fallback for the first **base-game** load screen when the Vita system language is German; it does not claim those strings are official retail German localization and does not apply base-game text to EP or PM. Loading diagnostics now report mission, level, briefing and help StringDB ids so later expansion localization can be implemented against the real ids.
+The ARM ObjectDLL compile now passes `AI.cpp` and the previous `AIActionGotoValidPosition.cpp` blocker and is advancing incrementally through the AI action/activity sources. **There is not yet a complete ObjectDLL link or an M29AY VPK.**
+
+For a new chat, start with branch `m29ay-objectdll-world-runtime` and read `CURRENT_STATE_M29AY.txt`, `M29AY_PROGRESS_2026-09-11.md` and `patches/M29AY.patch`. Continue the ARM target `fearvita_fear_server_objects` from its first compiler error, then link the server/runtime, instantiate `Worlds\\Release\\Intro`, and validate the same runtime path for FEAR/EP/PM on hardware.
