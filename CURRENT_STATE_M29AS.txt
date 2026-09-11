@@ -1,0 +1,9 @@
+FEARVita 0.02 / M29AS
+2026-09-11
+
+- M29AP three-game frontend/menu-video milestone remains accepted.
+- M29AR selector touch/sounds and menu-link fixes remain unchanged.
+- Restores Vita-system-language override priority after the M29AQ packed StringDB regression.
+- Packed SKDB values remain the fallback for ids not covered by the portable localization layer.
+- Adds CClientWeaponMgr runtime tracing for weapon-object creation and weapon changes.
+- Next weapon work: gameplay world entry -> selected weapon -> viewmodel -> animation -> ammo -> fire.
