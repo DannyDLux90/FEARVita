@@ -1,18 +1,15 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AP  
+**Internal checkpoint:** M29AQ  
 **Date:** 2026-09-11
 
-The launcher/loading flow and the F.E.A.R. base-game menu are accepted on hardware and remain unchanged. M29AN cleared the remaining frontend blocker for both expansions: Extraction Point and Perseus Mandate reach `frontend-main-ok`, `complete`, engine init result 0 and enter their retail menus.
+The M29AP frontend/menu-video milestone is complete on hardware: F.E.A.R., Extraction Point and Perseus Mandate all reach their retail menus and play their original animated menu backgrounds. The accepted launcher/loading presentation remains unchanged.
 
-M29AP is the three-game frontend/menu milestone candidate. The exact user-exported expansion menu Binks have been converted to Vita-compatible H.264 caches and packaged only in the private hardware-test VPK:
-- F.E.A.R.: `Videos\\Menu.bik` -> `video_cache/fear/videos/menu.mp4`
-- Extraction Point: `VideosXP\\Menu.bik` -> `video_cache/ep/videosxp/menu.mp4` (512x512, 420 frames, 30 fps, 14.000 s)
-- Perseus Mandate: `VideosXP2\\MenuXP2.bik` -> `video_cache/pm/videosxp2/menuxp2.mp4` (640x480, 466 frames, 29.97 fps, 15.548882 s)
+M29AQ starts the next milestone: make every retail menu/submenu entry complete and correctly linked, with `Options -> Leistung` / Performance and the weapon options screen as the first audit targets.
 
-Both expansion Binks are silent. Their retail ScreenMedia definitions request `Music\\IntroIntLp1v2.wav`, so FEARVita keeps the original separate menu WAV and normal retail UI select/selectchange sounds. No synthetic menu audio is added. The menu videos are rendered to the complete 960x544 Vita framebuffer, matching the already accepted base-game Vita presentation.
+The Vita StringEdit bridge now attempts a full packed SKDB v2 decode: id table, UTF-16LE value table and TOC mapping. When this succeeds, the actual retail/localized `.Strdb00p` values become authoritative instead of the earlier small hand-written language safety net. A symbolic-id fallback remains in place for unknown/invalid variants.
 
-No retail Binks, converted MP4s, menu music or private artwork are committed to this public repository.
+For hardware diagnosis M29AQ also adds screen-transition/build logs, Performance command logs, and a weapon-menu audit that records each default-priority weapon record plus its short-name id, long-name id and silhouette icon. The selected retail StringDB can be exported on hardware to `ux0:data/FEARVita/debug/StringDB_<campaign>.strdb00p` if format work is still needed.
 
-Next hardware priority: verify EP and PM each report AvPlayer `add-source result=0` plus `first-frame`, visibly animate/loop behind the retail menus, and retain the correct retail music/UI sounds. If both pass, the three-game frontend/menu milestone is complete.
+Full weapon gameplay is not claimed complete at this checkpoint; M29AQ establishes the correct retail menu/database/client-weapon linkage first.
