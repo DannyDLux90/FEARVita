@@ -37,13 +37,15 @@ Major confirmed ARM/Vita compile milestones include:
 - `ObjectTemplateMgr.cpp`;
 - **`PlayerObj.cpp` PASS**.
 
-A full validation rebuild is/was running at handoff. The exact latest first error (or success) must be taken from the newest build log or by rerunning:
+The ObjectDLL validation is complete: **533/533 retail server translation units compile for ARM/Vita and Ninja returned `rc=0`**. Do not redo ObjectDLL bring-up unless a later shared-header change invalidates it.
+
+The active frontier is the complete executable:
 
 ```sh
-ninja -C build-vita -j6 fearvita_fear_server_objects
+ninja -C build-vita -j6 FEARVita
 ```
 
-Do not infer 533/533 from the milestone list; require an actual `rc=0`.
+The first full-build client failure (`LT_PT_COMMAND` / `LT_PT_STRINGID` not visible in ClientShell) is fixed in shared `ltproperty.h`. A later ClientShell failure where `compat/ltintersect.h` referenced `LTOBB` without explicitly including `ltobb.h` is also fixed. The current full ClientShell rebuild proceeds beyond that point; rerun the full target and continue from the first actual remaining ClientShell/shared/link error.
 
 ## High-value compatibility decisions already made
 
@@ -57,7 +59,7 @@ Do not infer 533/533 from the milestone list; require an actual `rc=0`.
 8. The Player Pitch/Roll unguaranteed payload has been wired end-to-end in the old networking structures.
 9. New `OnObjectCreated(GenericPropList*, reason)` must actually be dispatched by the server; this was added because otherwise world properties for newer classes would silently be skipped.
 
-## After ObjectDLL compiles
+## After ObjectDLL compile (complete)
 
 The next large task is **not** another menu patch. Bring in the actual runtime/server/world core. Upstream `runtime/server/CMakeLists.txt` is the source-list reference. Create a Vita runtime-server target from the portable server/shared/world/model sources while replacing or excluding platform-specific Windows/Linux sys sources.
 
@@ -73,11 +75,13 @@ The first world is `Worlds\\Release\\Intro` and must come through FEARVita VFS f
 
 ## Patch handoff
 
-The canonical M29AY incremental patch is too large for a single connector write, so GitHub stores a compressed/base64 split representation. Read `patches/M29AY_PATCH_RECONSTRUCT.md`. Expected reconstructed patch SHA-256:
+GitHub stores the canonical incremental M29AY patch as a gzip/base64 split representation because the raw patch is over 1 MB. Read `patches/M29AY_PATCH_RECONSTRUCT.md` and concatenate the four `patches/M29AY.patch.gz.b64.partXX` files.
 
-`347014192e81f6aa96c4555352bd8652387530e3f93325ceb3d33b7c44307bf4`
+Expected reconstructed patch SHA-256:
 
-The patch was independently verified with `git apply --check` against the M29AX source baseline.
+`9a499ec2fcd6300b6c6f843beb3066d0f2f51847b5c0160ac5c5aaf852c2df22`
+
+The patch was independently verified with `git apply --check` against the M29AX baseline.
 
 ## Hardware policy
 
