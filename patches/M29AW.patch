@@ -1,0 +1,167 @@
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -531,7 +531,7 @@
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AV; localized loading UI + Killzone-style Vita controls + server compile bring-up");
++      "FEARVita 0.02 / M29AW; Vita default-control profile + Bubble manual + German Steam loading fallback");
+@@ -614,7 +614,7 @@
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AV; localized loading UI + Killzone-style Vita controls + server compile bring-up");
++      "FEARVita 0.02 / M29AW; Vita default-control profile + Bubble manual + German Steam loading fallback");
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -182,6 +182,7 @@
+     FILE sce_sys/manual/002.png sce_sys/manual/002.png
+     FILE sce_sys/manual/003.png sce_sys/manual/003.png
+     FILE sce_sys/manual/004.png sce_sys/manual/004.png
++    FILE sce_sys/manual/005.png sce_sys/manual/005.png
+--- a/project/integration/lithtech/fearvita_stringedit_vita.cpp
++++ b/project/integration/lithtech/fearvita_stringedit_vita.cpp
+@@ -487,6 +487,10 @@
+     else g_campaignTag = "fear";
+ }
++
++extern "C" const char* FearVita_StringEditGetCampaignTag() {
++    return g_campaignTag.c_str();
++}
+--- a/project/integration/lithtech/fearvita_stringedit_vita.h
++++ b/project/integration/lithtech/fearvita_stringedit_vita.h
+@@ -5,6 +5,7 @@
+ void FearVita_StringEditSetCampaignTag(const char* tag);
++const char* FearVita_StringEditGetCampaignTag();
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ProfileMgr.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ProfileMgr.cpp
+@@ -35,6 +35,7 @@
+ #if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
+ #include "fearvita/system_language.h"
++#include "fearvita/runtime_diagnostics.h"
+ #endif
+@@ -663,9 +664,85 @@
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++void CUserProfile::LoadVitaDefaultControls()
++{
++	for (TCommandBindingList::iterator it = m_aCommandDeviceBindings.begin(); it != m_aCommandDeviceBindings.end(); ++it)
++		it->clear();
++	auto SetVitaButton = [this](uint32 command, const wchar_t* objectName)
++	{
++		SCommandBindingInfo b;
++		b.m_sDeviceName = L"PS Vita"; b.m_sObjectName = objectName;
++		b.m_fDefaultValue = 0.0f; b.m_fOffset = 0.0f; b.m_fScale = 255.0f;
++		b.m_fDeadZoneMin = FLT_MAX; b.m_fDeadZoneMax = -FLT_MAX; b.m_fDeadZoneValue = 0.0f;
++		b.m_fCommandMin = 0.1f; b.m_fCommandMax = FLT_MAX;
++		SetCommandBinding(command, b);
++	};
++	auto SetVitaAxis = [this](uint32 command, const wchar_t* objectName, float scale)
++	{
++		const float dz = 0.18f; SCommandBindingInfo b;
++		b.m_sDeviceName = L"PS Vita"; b.m_sObjectName = objectName; b.m_fDefaultValue = 0.0f;
++		b.m_fOffset = -(1.0f + dz) * scale; b.m_fScale = (2.0f + dz * 2.0f) * scale;
++		b.m_fDeadZoneMin = -dz * fabsf(scale); b.m_fDeadZoneMax = dz * fabsf(scale); b.m_fDeadZoneValue = 0.0f;
++		b.m_fCommandMin = 0.0f; b.m_fCommandMax = 1.0f; SetCommandBinding(command, b);
++	};
++	SetVitaAxis(COMMAND_ID_STRAFE_AXIS, L"Linker Stick X", 1.0f);
++	SetVitaAxis(COMMAND_ID_FORWARD_AXIS, L"Linker Stick Y", 1.0f);
++	SetVitaAxis(COMMAND_ID_YAW_ACCEL, L"Rechter Stick X", 1.0f);
++	SetVitaAxis(COMMAND_ID_PITCH_ACCEL, L"Rechter Stick Y", -1.0f);
++	SetVitaButton(COMMAND_ID_FIRING, L"R");
++	SetVitaButton(COMMAND_ID_MANUALAIM, L"L");
++	SetVitaButton(COMMAND_ID_JUMP, L"X");
++	SetVitaButton(COMMAND_ID_DUCK, L"Kreis");
++	SetVitaButton(COMMAND_ID_RELOAD, L"Quadrat");
++	SetVitaButton(COMMAND_ID_ACTIVATE, L"Dreieck");
++	SetVitaButton(COMMAND_ID_SLOWMO, L"Steuerkreuz oben");
++	SetVitaButton(COMMAND_ID_THROW_GRENADE, L"Steuerkreuz unten");
++	SetVitaButton(COMMAND_ID_PREV_WEAPON, L"Steuerkreuz links");
++	SetVitaButton(COMMAND_ID_NEXT_WEAPON, L"Steuerkreuz rechts / Touch rechts");
++	SetVitaButton(COMMAND_ID_FLASHLIGHT, L"Touchscreen links");
++	SetVitaButton(COMMAND_ID_TOGGLEMELEE, L"Touchscreen Mitte");
++	SetVitaButton(COMMAND_ID_RUN, L"Touchpad hinten: doppeltippen + halten");
++	SetVitaButton(COMMAND_ID_MISSION, L"SELECT");
++	SetVitaButton(COMMAND_ID_MENU, L"START");
++	fearvita::RuntimeDiagnostic("controls-default", "vita-profile=killzone-style-v1 L=aim R=fire X=jump O=crouch Square=reload Triangle=use dpad=slowmo/grenade/weapons front-touch=flashlight/melee/next rear=doubletap-hold-sprint");
++}
++#endif
++
+ void CUserProfile::LoadControls(HDATABASE hDB)
+ {
+ 	HRECORD hRec;
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	LoadVitaDefaultControls();
++#else
+@@ -741,6 +818,7 @@
+ #endif // !PLATFORM_XENON
++#endif // PLATFORM_VITA
+@@ -1349,6 +1427,11 @@
+ const wchar_t* CUserProfile::GetTriggerNameFromCommandID(int nCommand)
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	const wchar_t* pszVitaDirect = FearVitaCommandDisplayName(nCommand);
++	if (!LTStrEmpty(pszVitaDirect)) return pszVitaDirect;
++#endif
+@@ -1715,6 +1798,11 @@
+ void CUserProfile::SetBindings()
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	return;
++#endif
+@@ -2283,7 +2371,12 @@
+ 	if (nFlags & PROFILE_CONTROLS)
++	{
+ 		LoadControls(hDB);
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		fearvita::RuntimeDiagnostic("controls-default", "restore-defaults applied canonical Vita profile");
++#endif
++	}
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ProfileMgr.h
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ProfileMgr.h
+@@ -350,7 +350,10 @@
+ 	void		LoadVersion(HDATABASE hDB);
+ 	void		LoadControls(HDATABASE hDB);
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	void		LoadVitaDefaultControls();
++#endif
+--- a/lithtech-overlay/FEAR/ClientShellDLL/LoadingScreen.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/LoadingScreen.cpp
+@@ -28,6 +28,8 @@
+ #if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
+ #include "fearvita/runtime_diagnostics.h"
++#include "fearvita/system_language.h"
++#include "fearvita_stringedit_vita.h"
+ #endif
+@@ -863,19 +865,40 @@
+ 	wchar_t wszMissionDiplayName[MAX_PATH];
+ 	g_pMissionDB->GetMissionDisplayName(hMission, hLevel, wszMissionDiplayName, LTARRAYSIZE(wszMissionDiplayName));
++	const char* szMissionNameId = g_pMissionDB->GetString(hMission,MDB_Name);
++	const char* szLevelNameId = g_pMissionDB->GetString(hLevel,MDB_Name);
+ 	m_MissionName.SetFont(g_CurrentLayout.m_sTitleFont);
+ 	m_MissionName.SetString(wszMissionDiplayName);
+-	m_LevelName.SetString(LoadString(g_pMissionDB->GetString(hLevel,MDB_Name)));
++	m_LevelName.SetString(LoadString(szLevelNameId));
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	const bool bVitaGermanSteamIntroFallback =
++		(0 == LTStrICmp(fearvita::GetSystemLanguageId(), "de")) &&
++		(0 == LTStrICmp(FearVita_StringEditGetCampaignTag(), "fear")) &&
++		(0 == LTStrICmp(g_pMissionMgr->GetCurrentWorldName(), "Worlds\\Release\\Intro"));
++	if (bVitaGermanSteamIntroFallback)
++	{
++		m_MissionName.SetString(L"INTERVALL 01");
++		m_LevelName.SetString(L"EINFÜHRUNG");
++		m_Briefing.SetString(L"Einsatzdaten werden vorbereitet.");
++	}
++#else
++	const bool bVitaGermanSteamIntroFallback = false;
++#endif
+@@ -887,6 +910,13 @@
+ 	else m_Help.SetString(L"");
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	if (bVitaGermanSteamIntroFallback)
++	{
++		m_Help.SetString(L"Tipp: SELECT öffnet die Missionsziele. Linker Stick: bewegen. Rechter Stick: umsehen.");
++		fearvita::RuntimeDiagnostic("loading-localize", "fallback=de-steam-base-intro applied=1");
++	}
++#endif
++
++# Full original manual generator is tracked separately at project/tools/generate_vita_manual.py.
++# Generated assets: project/sce_sys/manual/001.png ... 005.png
