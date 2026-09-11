@@ -1,0 +1,8 @@
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ScreenWeapons.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ScreenWeapons.cpp
+@@
+-	if (m_pSelectedWpn)
++	if (m_pSelectedWpn && GetSelectedControl() == m_pWeapons)
+@@
+-	if (m_pSelectedWpn)
++	if (m_pSelectedWpn && GetSelectedControl() == m_pWeapons)
