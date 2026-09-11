@@ -1,18 +1,18 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AO  
+**Internal checkpoint:** M29AP  
 **Date:** 2026-09-11
 
-The launcher / loading flow and the F.E.A.R. base-game menu are accepted on hardware and should remain unchanged. M29AN also cleared the remaining frontend blocker for both expansions: Extraction Point and Perseus Mandate now reach `frontend-main-ok`, `complete`, engine init result 0 and enter their retail menus.
+The launcher/loading flow and the F.E.A.R. base-game menu are accepted on hardware and remain unchanged. M29AN cleared the remaining frontend blocker for both expansions: Extraction Point and Perseus Mandate reach `frontend-main-ok`, `complete`, engine init result 0 and enter their retail menus.
 
-The remaining milestone item is now only the animated retail menu background for EP/PM. Hardware identifies the exact movies and cache targets:
-- F.E.A.R.: `Videos\\Menu.bik` -> `video_cache/fear/videos/menu.mp4` (already working)
-- Extraction Point: `VideosXP\\Menu.bik` -> `video_cache/ep/videosxp/menu.mp4`
-- Perseus Mandate: `VideosXP2\\MenuXP2.bik` -> `video_cache/pm/videosxp2/menuxp2.mp4`
+M29AP is the three-game frontend/menu milestone candidate. The exact user-exported expansion menu Binks have been converted to Vita-compatible H.264 caches and packaged only in the private hardware-test VPK:
+- F.E.A.R.: `Videos\\Menu.bik` -> `video_cache/fear/videos/menu.mp4`
+- Extraction Point: `VideosXP\\Menu.bik` -> `video_cache/ep/videosxp/menu.mp4` (512x512, 420 frames, 30 fps, 14.000 s)
+- Perseus Mandate: `VideosXP2\\MenuXP2.bik` -> `video_cache/pm/videosxp2/menuxp2.mp4` (640x480, 466 frames, 29.97 fps, 15.548882 s)
 
-M29AN already exports EP's movie as `ux0:data/FEARVita/debug/Menu_ep.bik`. PM did not export because the old menu-movie detector only recognized names ending in `Menu.bik`; PM uses `MenuXP2.bik`.
+Both expansion Binks are silent. Their retail ScreenMedia definitions request `Music\\IntroIntLp1v2.wav`, so FEARVita keeps the original separate menu WAV and normal retail UI select/selectchange sounds. No synthetic menu audio is added. The menu videos are rendered to the complete 960x544 Vita framebuffer, matching the already accepted base-game Vita presentation.
 
-M29AO fixes menu-movie classification to accept any `.bik` whose basename starts with `menu`. This makes PM's `MenuXP2.bik` a looping menu movie, exports it as `ux0:data/FEARVita/debug/Menu_pm.bik`, and keeps the existing campaign-isolated MP4 cache lookup. The cache-preparation tool/docs are also corrected to the actual EP/PM virtual paths.
+No retail Binks, converted MP4s, menu music or private artwork are committed to this public repository.
 
-Next hardware step: run M29AO once, collect `Menu_ep.bik` and `Menu_pm.bik`, convert those exact user-owned files to H.264 MP4, package them into the two expansion cache paths above, then verify both menu backgrounds visible/looping. That closes the three-game frontend/menu milestone.
+Next hardware priority: verify EP and PM each report AvPlayer `add-source result=0` plus `first-frame`, visibly animate/loop behind the retail menus, and retain the correct retail music/UI sounds. If both pass, the three-game frontend/menu milestone is complete.
