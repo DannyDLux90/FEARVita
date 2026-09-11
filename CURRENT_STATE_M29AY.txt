@@ -1,0 +1,49 @@
+FEARVita M29AY — 2026-09-11
+
+BASE:
+- M29AX full ARM/Vita build verified (ELF -> VELF -> SELF -> VPK).
+- Pinned LithTech upstream: jsj2008/lithtech @ 0eab18289bed72879eddb648d3311075b108cf46.
+
+CAMPAIGN PARITY:
+- F.E.A.R., Extraction Point and Perseus Mandate all reach the same accepted StartGame/server-world frontier on real Vita logs.
+- M29AY uses one shared ObjectDLL/server/world runtime for all three.
+- German Vita intro fallback now covers fear/ep/pm with campaign-specific FEARVita briefing text.
+
+SERVER TARGET:
+- FEARVITA_MENU_LINK_ONLY=OFF.
+- 533 retail ObjectDLL translation units.
+- _FINAL=1.
+- AIGoalGotoCombat.cpp and MeleeWeaponModel.cpp excluded because they are absent from the retail Game_ServerShell.vcproj.
+
+SDK/RUNTIME COMPAT IMPLEMENTED:
+- ICommandDef/ICommandMessageDef + FEAR class/property macro adapters.
+- LTOBB.
+- ObjectBank category mapping at FEAR callsites.
+- real ILTServer::GetClientObject from Client::m_pObject.
+- shadow-LOD compatibility.
+- global SendSFXMessage(msg, flags).
+- GenericProp/GenericPropList FEAR accessors.
+- reference overloads for IntersectSegment/SetObjectPos/SetObjectRotation.
+- ObjectCreateStruct physics-group slot + correct child-model index mapping.
+- scalar LTIsNaN.
+- CRange<T> C++17 dependent-base fix.
+- LTIntersect::Point_Segment_DistSqr.
+
+CURRENT FRONTIER:
+- ARM ObjectDLL compile passes AI.cpp and AIActionGotoValidPosition.cpp and is advancing through AI action/activity sources.
+- Not yet fully compiled/linked. No M29AY VPK yet.
+
+IMPORTANT CAVEAT:
+- FEAR SDK 1.08 property-type numeric values differ from the old public LithTech runtime. Reconcile/verify during real world-property decoding before claiming gameplay correctness.
+
+NEXT:
+1. Continue ninja target fearvita_fear_server_objects and fix first real error using FEAR SDK 1.08 contracts.
+2. Complete all 533 ARM server TUs.
+3. Link server/runtime with client executable.
+4. Instantiate Worlds\\Release\\Intro and wire real local MID_START_GAME/MID_START_LEVEL flow.
+5. Test one VPK on hardware for all three campaigns and compare per-campaign logs.
+
+GITHUB:
+- branch: m29ay-objectdll-world-runtime
+- base: m29ax-menu-dpad-touch
+- canonical incremental patch: patches/M29AY.patch
