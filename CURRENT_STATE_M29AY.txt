@@ -28,7 +28,6 @@ ADDON MISSION / LOADING SCREEN LOCALIZATION
 - These are FEARVita-authored fallbacks, not claimed as official retail German strings.
 
 ARM OBJECTDLL STATUS
-- FULL RETAIL OBJECTDLL TARGET: 533/533 ARM/Vita PASS, ninja rc=0.
 - PlayerObj.cpp: PASS on ARM/Vita.
 - GameServerShell.cpp: PASS on ARM/Vita.
 - Character.cpp / CharacterHitBox.cpp / CommandMgr.cpp: PASS.
@@ -39,7 +38,9 @@ ARM OBJECTDLL STATUS
 - KeyFramer.cpp / KeyframeToRigidBody.cpp: PASS.
 - LightBase/Cube/Directional/Editor/Point/PointFill/Spot: PASS.
 - NavMarker / ObjectTemplateMgr / PickupItem / PlayerInventory / PlayerLeash / PlayerLure / PlayerNodeGoto: PASS.
-- Full FEARVita executable build is now the active frontier. The first client rebuild error was FEAR LT_PT_COMMAND/LT_PT_STRINGID visibility in ltproperty.h; those compatibility values are now visible to both client and server, and the ClientShell rebuild proceeds beyond that error.
+- FULL RETAIL OBJECTDLL TARGET: 533/533 ARM/Vita PASS, ninja rc=0.
+- Full FEARVita executable build is now the active frontier. FEAR LT_PT_COMMAND/LT_PT_STRINGID visibility in ltproperty.h is fixed for both client and server.
+- A later ClientShell error where compat/ltintersect.h referenced LTOBB without including ltobb.h is fixed; the full ClientShell rebuild proceeds beyond that point.
 - No final executable link/VPK yet.
 
 IMPORTANT IMPLEMENTED COMPATIBILITY
