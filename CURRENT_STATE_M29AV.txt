@@ -1,0 +1,23 @@
+FEARVita 0.02 / M29AV
+Date: 2026-09-11
+
+Hardware status
+- FEAR/EP/PM retail frontend milestone remains complete.
+- Base FEAR now reaches the real first-mission loading screen after difficulty selection.
+- `Worlds\Release\Intro` exists and is selected correctly.
+- ScreenPreload advances through FinishStartGame.
+- The local STARTGAME_NORMAL client bridge succeeds.
+- The current infinite loading wait is at the missing ObjectDLL/server/world runtime.
+
+M29AV
+- Killzone-inspired fixed Vita control preset.
+- Native front touchscreen zones: left flashlight, center melee, right next weapon.
+- Rear touchpad: double-tap + hold sprint.
+- L aim / R fire / X jump / Circle crouch / Square reload / Triangle activate.
+- D-pad: up SlowMo, down grenade, left previous weapon, right next weapon.
+- Vita command labels replace `key unassigned` for mapped actions and appear in Configure Controls/help text.
+- Generic loading-screen strings use the Vita language overlay.
+- `loading-localize` logs the exact mission name/briefing/help StringDB ids for remaining dynamic localization.
+- ObjectDLL compile compatibility now accepts FEAR's optional editor-description property macro tail; the next frontier is missing private server interfaces/APIs.
+
+Playable gameplay is not yet claimed.
