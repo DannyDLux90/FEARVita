@@ -1,0 +1,15 @@
+FEARVita 0.02 / M29AT — 2026-09-11
+
+COMPLETED HARDWARE BASELINE
+- FEAR, Extraction Point and Perseus Mandate all reach their retail menus.
+- All three original animated menu backgrounds work with retail menu music/UI sounds.
+- Vita system-language menu overlay is restored and confirmed German on hardware.
+
+M29AT
+- Separate logs: fear_launcher.log, fear_fear.log, fear_ep.log, fear_pm.log.
+- Weapons options: X selects; Left/Right now reorders selected weapon priority and existing profile save persists it.
+- First single-player start bridge: STARTGAME_NORMAL local-session shim advances client into preload/loading without pretending the missing ObjectDLL/server runtime exists.
+- New Game, selected first world, preload, local StartGame and deferred server-message seams are logged.
+
+NEXT FRONTIER
+Hardware-test base FEAR New Game and return fear_fear.log/core dump. The full FEAR ObjectDLL/server layer still requires portability work before genuine world objects/AI/gameplay can be claimed.
