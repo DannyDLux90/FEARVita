@@ -1,0 +1,101 @@
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -593,6 +593,28 @@
+     fearvita::RuntimeDiagnostic("launcher-vfs", "base mount failed; selector remains usable without sound");
+   } else {
+     fearvita::RuntimeDiagnostic("launcher-vfs", "base mount ready for retail UI sounds");
++
++    // Match the PC startup logo: its one-shot effect is not a hard-coded menu
++    // WAV.  Retail FEAR reads Client/Shared.Shared.SplashScreenSound from
++    // FEAR.Gamdb00p. Resolve that same user-owned value and play it once as the
++    // selector is entered. Do not ship or duplicate the retail audio asset.
++    const fearvita::CampaignState* base_fear = nullptr;
++    for (const auto& campaign : campaigns) {
++      if (campaign.info.id == fearvita::CampaignId::Fear && campaign.playable_data_present()) {
++        base_fear = &campaign;
++        break;
++      }
++    }
++    if (base_fear) {
++      const std::string splash_sound = fearvita::ResolveRetailSplashScreenSound(*base_fear);
++      if (!splash_sound.empty()) {
++        const bool played = FearVita_PlayInterfaceSound(splash_sound.c_str());
++        fearvita::RuntimeDiagnostic("launcher-splash-sound",
++            std::string("play-once=") + (played ? "ok " : "failed ") + splash_sound);
++      }
++    } else {
++      fearvita::RuntimeDiagnostic("launcher-splash-sound", "base FEAR campaign unavailable");
++    }
+   }
+ 
+   const fearvita::CampaignState* selected = ShowCampaignLauncher(renderer, controller, campaigns, ui_lang);
+--- a/project/integration/lithtech/fearvita_menu_boot.cpp
++++ b/project/integration/lithtech/fearvita_menu_boot.cpp
+@@ -143,6 +143,55 @@
+   return "unknown";
+ }
+ 
++
++std::string ResolveRetailSplashScreenSound(const CampaignState& campaign) {
++  const FearVfs vfs = BuildFearVfsOverlay(campaign.data_root,
++                                          campaign.root_path,
++                                          campaign.data_root);
++  if (!vfs.ready()) {
++    RuntimeDiagnostic("launcher-splash-sound", "vfs-unavailable");
++    return std::string();
++  }
++
++  static const char* kDatabasePath = "Database/FEAR.Gamdb00p";
++  std::unique_ptr<VfsStream> raw;
++  std::string error;
++  if (!vfs.OpenStream(kDatabasePath, &raw, &error) || !raw) {
++    RuntimeDiagnostic("launcher-splash-sound",
++        std::string("database-open-failed error=") + error);
++    return std::string();
++  }
++
++  IDatabaseMgr* database = GetIDatabaseMgr();
++  if (!database) {
++    RuntimeDiagnostic("launcher-splash-sound", "database-manager-unavailable");
++    return std::string();
++  }
++
++  VfsInStream in(std::move(raw));
++  HDATABASE db = database->OpenNewDatabase(kDatabasePath, in);
++  if (!db) {
++    RuntimeDiagnostic("launcher-splash-sound", "database-parse-failed");
++    return std::string();
++  }
++
++  HATTRIBUTE soundAttribute = database->GetAttribute(
++      db, "Client/Shared", "Shared", "SplashScreenSound");
++  const uint32 soundCount = soundAttribute ? database->GetNumValues(soundAttribute) : 0u;
++  const char* sound = soundCount ? database->GetString(soundAttribute, 0u, "") : "";
++  const std::string resolved = sound ? sound : "";
++  database->ReleaseDatabase(db);
++
++  if (resolved.empty()) {
++    RuntimeDiagnostic("launcher-splash-sound", "Client/Shared.Shared.SplashScreenSound missing");
++    return std::string();
++  }
++
++  RuntimeDiagnostic("launcher-splash-sound",
++      std::string("resolved=") + resolved + " values=" + std::to_string(soundCount));
++  return resolved;
++}
++
+ MenuBootResult AttemptFearMenuBoot(const CampaignState& campaign) {
+   MenuBootResult result;
+   RuntimeDiagnostic("menu-boot", "begin campaign=" + std::string(campaign.info.display_name));
+--- a/project/include/fearvita/menu_boot.h
++++ b/project/include/fearvita/menu_boot.h
+@@ -35,6 +35,9 @@
+ 
+ const char* MenuBootStageName(MenuBootStage stage);
+ MenuBootResult AttemptFearMenuBoot(const CampaignState& campaign);
++// Resolves the original PC splash/logo sound from the retail FEAR ClientDB.
++// Returns an empty string when the database/value is unavailable.
++std::string ResolveRetailSplashScreenSound(const CampaignState& campaign);
+ bool RunFearMenuFrame();
+ 
+ }  // namespace fearvita
