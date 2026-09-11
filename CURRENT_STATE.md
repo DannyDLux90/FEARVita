@@ -1,15 +1,19 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AS  
+**Internal checkpoint:** M29AT  
 **Date:** 2026-09-11
 
-The M29AP three-game frontend/video milestone is complete on hardware: F.E.A.R., Extraction Point and Perseus Mandate boot to their retail menus and play their original animated menu backgrounds with retail menu music/UI sounds. That accepted presentation remains unchanged.
+The three-game frontend/menu-video milestone is complete on real PS Vita hardware: **F.E.A.R.**, **Extraction Point** and **Perseus Mandate** all reach their retail menus and play their original animated menu backgrounds with retail menu music/UI sounds. The Vita-system-language overlay is restored and was confirmed German on hardware in M29AS.
 
-M29AR's menu-completeness work remains active: the reachable single-player/options screen graph is registered, selector touch/highlight behavior is fixed, selector movement/activation use the original retail UI sounds, Performance RecordLinks are bounds-checked, and Advanced CPU/GPU layout state is separated correctly.
+M29AT begins the next milestone: advance from the retail menu into a real single-player session while keeping the accepted frontend unchanged.
 
-M29AS fixes the language regression introduced by M29AQ's packed SKDB decoder. Hardware still detected the Vita system language as German, but decoded packed retail strings were returned before the existing Vita-language overlay. System-language localizations are now authoritative where FEARVita defines them; decoded packed retail StringDB values remain the complete fallback for all other ids. `IDS_GAME_LANGUAGE` therefore again follows the Vita system language.
+Diagnostics are now split so one campaign never overwrites another: `fear_launcher.log`, `fear_fear.log`, `fear_ep.log`, and `fear_pm.log` under `ux0:data/FEARVita/`.
 
-The weapon milestone is now moving from the menu/database audit into the actual client runtime. M29AS logs CClientWeaponMgr player-weapon creation and weapon-change requests/dispatch so the next gameplay pass can follow WeaponDB -> CClientWeapon -> viewmodel/animation/ammo/fire in order. Full gameplay weapon behavior is not yet claimed complete.
+The Weapons options screen now has Vita-native priority editing. X selects a weapon; Left/Right moves that selected weapon up/down in the retail priority list. The existing profile save/apply path is retained.
 
-The PC Multiplayer menu belongs to a separate FEARMP executable/network browser architecture; that networking path remains a later standalone milestone.
+For New Game, the Vita ILTClient now accepts a **local `STARTGAME_NORMAL` session shim only** instead of returning `LT_UNSUPPORTED`. The client can therefore proceed through first mission/world selection, preload and the local StartGame seam. The full FEAR ObjectDLL/server transport is still not online, so M29AT intentionally defers `MID_START_GAME` / `MID_START_LEVEL` CAutoMessages and logs the exact point where the real world/server-object runtime is still required. This checkpoint does **not** claim playable gameplay yet.
+
+A separate ObjectDLL compile probe confirms the next server milestone still has real portability work: FEAR server-object property macros and several server-side SDK/API contracts differ from the currently exposed open runtime interfaces.
+
+Next hardware step: base F.E.A.R. -> Single Player -> New Game -> choose difficulty, then collect `ux0:data/FEARVita/fear_fear.log` and any core dump. That trace decides the next ingame implementation seam.
