@@ -1,0 +1,44 @@
+--- a/project/integration/lithtech/fearvita_bink_vita.cpp
++++ b/project/integration/lithtech/fearvita_bink_vita.cpp
+@@ -278,8 +278,15 @@
+ }
+ 
+ bool IsMenuBink(const std::string& normalized) {
+-  return normalized == "videos\\menu.bik" ||
+-         (normalized.size() >= 8 && normalized.rfind("menu.bik") == normalized.size() - 8);
++  // Retail menu movies are not named consistently across the three campaigns:
++  //   FEAR: Videos\Menu.bik
++  //   EP:   VideosXP\Menu.bik
++  //   PM:   VideosXP2\MenuXP2.bik
++  // Treat any Bink whose basename starts with "menu" as a looping menu movie.
++  const std::size_t slash = normalized.find_last_of("\\/");
++  const std::string base = (slash == std::string::npos) ? normalized : normalized.substr(slash + 1);
++  return base.size() >= 8 && base.rfind("menu", 0) == 0 &&
++         base.compare(base.size() - 4, 4, ".bik") == 0;
+ }
+ 
+ // M29AF per-frame JPEG fallback removed in M29AH.
+--- a/project/tools/prepare_video_cache.py
++++ b/project/tools/prepare_video_cache.py
+@@ -6,8 +6,8 @@
+ 
+ The output mirrors the campaign and virtual paths:
+     binks/fear/videos/Menu.bik -> video_cache/fear/videos/menu.mp4
+-    binks/ep/videos/Menu.bik   -> video_cache/ep/videos/menu.mp4
+-    binks/pm/videos/Menu.bik   -> video_cache/pm/videos/menu.mp4
++    binks/ep/videosxp/Menu.bik -> video_cache/ep/videosxp/menu.mp4
++    binks/pm/videosxp2/MenuXP2.bik -> video_cache/pm/videosxp2/menuxp2.mp4
+ 
+ M29AH itself exports the menu Bink as ``debug/Menu_<campaign>.bik`` for
+ hardware validation.  A later extraction/batch step will populate the complete
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -503,7 +503,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_menu_boot.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AN; expansion dynamic AnimProp sync bypass for EP/PM frontend");
++      "FEARVita 0.02 / M29AO; EP/PM menu-video export/cache path fix");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
