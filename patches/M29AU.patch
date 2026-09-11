@@ -1,0 +1,42 @@
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -531,7 +531,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AT; per-campaign logs + weapon reorder + singleplayer start bridge");
++      "FEARVita 0.02 / M29AU; preload state-machine enabled + ingame loading handoff");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -612,7 +612,7 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AT; per-campaign logs + weapon reorder + singleplayer start bridge");
++      "FEARVita 0.02 / M29AU; preload state-machine enabled + ingame loading handoff");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   FearVita_BinkSetCampaignTag(campaign_tag);
+--- a/lithtech-overlay/FEAR/ClientShellDLL/InterfaceMgr.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/InterfaceMgr.cpp
+@@ -1005,10 +1005,15 @@
+ 
+ 
+ #if defined( PLATFORM_VITA ) || defined( FEARVITA_PORTABLE_COMPILE )
+-	// Frontend-first: interface ClientFX/model rendering is not required to
+-	// prove the retail menu and still reaches partially ported renderer/model
+-	// services.  Render the 2D screen controls directly for the menu milestone.
+-	const bool bInterfaceSFXReady = true;
++	// Frontend-first: normal menu screens still skip interface ClientFX/model
++	// rendering because those services are not fully ported yet.  Preload and
++	// postload are different: their UpdateInterfaceSFX implementations drive
++	// the actual mission state machine (FinishStartGame / post-load handoff).
++	// Skipping them leaves New Game parked forever on ScreenPreload.
++	const eScreenID eCurrentScreen = GetScreenMgr( )->GetCurrentScreenID();
++	const bool bRunStateMachineSFX =
++		(eCurrentScreen == SCREEN_ID_PRELOAD) || (eCurrentScreen == SCREEN_ID_POSTLOAD);
++	const bool bInterfaceSFXReady = bRunStateMachineSFX ? GetScreenMgr( )->UpdateInterfaceSFX() : true;
+ #else
+ 	const bool bInterfaceSFXReady = GetScreenMgr( )->UpdateInterfaceSFX();
+ #endif
