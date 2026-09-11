@@ -1,0 +1,474 @@
+diff --git a/lithtech-overlay/FEAR/ClientShellDLL/GameClientShell.cpp b/lithtech-overlay/FEAR/ClientShellDLL/GameClientShell.cpp
+index 5bd2e1a..408f9dd 100644
+--- a/lithtech-overlay/FEAR/ClientShellDLL/GameClientShell.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/GameClientShell.cpp
+@@ -56,6 +56,7 @@
+ #include "bindmgr.h"
+ #if defined(FEARVITA_CONTROLLER_INPUT)
+ #include "fearvita_iltclient_input_hook.h"
++#include "fearvita/controller_input.h"
+ #endif
+ 
+ #if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
+@@ -75,6 +76,30 @@ static void FearVita_GameShellCommandEdge(int command, bool on, void* user)
+     if (on) shell->OnCommandOn(command);
+     else shell->OnCommandOff(command);
+ }
++
++static void FearVita_DispatchFrontendTouch()
++{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++    CInterfaceMgr* interfaceMgr = g_pInterfaceMgr;
++    if (!interfaceMgr) return;
++    const GameState state = interfaceMgr->GetGameState();
++    if (state != GS_SCREEN && state != GS_MENU) return;
++
++    float nx = 0.0f;
++    float ny = 0.0f;
++    bool down = false;
++    bool pressed = false;
++    bool released = false;
++    if (!FearVita_GetFrontTouchState(&nx, &ny, &down, &pressed, &released)) return;
++    if (!down && !pressed && !released) return;
++
++    const int x = static_cast<int>(nx * 959.0f + 0.5f);
++    const int y = static_cast<int>(ny * 543.0f + 0.5f);
++    interfaceMgr->OnMouseMove(x, y);
++    if (pressed) interfaceMgr->OnLButtonDown(x, y);
++    if (released) interfaceMgr->OnLButtonUp(x, y);
++#endif
++}
+ #endif
+ 
+ #include "ClientDB.h"
+@@ -2075,7 +2100,10 @@ void CGameClientShell::Update()
+ #if defined(FEARVITA_CONTROLLER_INPUT)
+ 	FearVita_SetCommandEdgeCallback(FearVita_GameShellCommandEdge, this);
+ 	if (FearVita_PollControllerInput())
++	{
++		FearVita_DispatchFrontendTouch();
+ 		FearVita_DispatchCommandEdges();
++	}
+ #endif
+ 	CBindMgr::GetSingleton().Update();
+ 	if( !GetPlayerMgr()->IsPlayerInWorld() )
+@@ -2099,7 +2127,10 @@ void CGameClientShell::Update()
+ 	#if defined(FEARVITA_CONTROLLER_INPUT)
+ 	FearVita_SetCommandEdgeCallback(FearVita_GameShellCommandEdge, this);
+ 	if (FearVita_PollControllerInput())
++	{
++		FearVita_DispatchFrontendTouch();
+ 		FearVita_DispatchCommandEdges();
++	}
+ 	#endif
+ 	CBindMgr::GetSingleton().Update();
+ #endif
+@@ -2509,21 +2540,42 @@ void CGameClientShell::OnCommandOn(int command)
+ #if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
+ 		// The Vita command bridge is live before a player world exists.  Retail
+ 		// FEAR's screen manager, however, consumes keyboard-style navigation for
+-		// frontend screens.  Translate the controller commands while GS_SCREEN is
+-		// active so the real CScreenMain/ScreenMgr path remains authoritative.
+-		if (state == GS_SCREEN)
++		// frontend screens and menu managers.  Translate controller commands while
++		// GS_SCREEN or GS_MENU is active so the retail UI paths remain authoritative.
++		if (state == GS_SCREEN || state == GS_MENU)
+ 		{
+ 			int key = 0;
++			const std::uint32_t buttons = FearVita_GetControllerButtons();
+ 			switch (command)
+ 			{
+-				case COMMAND_ID_FORWARD:
+-				case COMMAND_ID_NEXT_WEAPON: key = VK_UP; break;
+-				case COMMAND_ID_REVERSE:
+-				case COMMAND_ID_PREV_WEAPON: key = VK_DOWN; break;
+-				case COMMAND_ID_STRAFE_LEFT:
+-				case COMMAND_ID_FLASHLIGHT: key = VK_LEFT; break;
+-				case COMMAND_ID_STRAFE_RIGHT:
+-				case COMMAND_ID_THROW_GRENADE: key = VK_RIGHT; break;
++				// Left-stick digital thresholds keep working in menus.
++				case COMMAND_ID_FORWARD: key = VK_UP; break;
++				case COMMAND_ID_REVERSE: key = VK_DOWN; break;
++				case COMMAND_ID_STRAFE_LEFT: key = VK_LEFT; break;
++				case COMMAND_ID_STRAFE_RIGHT: key = VK_RIGHT; break;
++
++				// Gameplay maps the D-pad to SlowMo/grenade/weapons.  In a Retail
++				// frontend screen, reinterpret the same physical buttons as UI arrows.
++				case COMMAND_ID_SLOWMO:
++					if (buttons & fearvita::ControllerButton_Up) key = VK_UP;
++					break;
++				case COMMAND_ID_THROW_GRENADE:
++					if (buttons & fearvita::ControllerButton_Down) key = VK_DOWN;
++					break;
++				case COMMAND_ID_PREV_WEAPON:
++					if (buttons & fearvita::ControllerButton_Left) key = VK_LEFT;
++					break;
++				case COMMAND_ID_NEXT_WEAPON:
++					// Front-touch right also means next weapon in gameplay.  Do not
++					// turn a screen tap into a second keyboard-navigation event.
++					if (buttons & fearvita::ControllerButton_Right) key = VK_RIGHT;
++					else return;
++
++				case COMMAND_ID_FLASHLIGHT:
++				case COMMAND_ID_TOGGLEMELEE:
++					// Front touch is dispatched above as mouse move/down/up.
++					return;
++
+ 				case COMMAND_ID_JUMP:
+ 				case COMMAND_ID_ACTIVATE: key = VK_RETURN; break;
+ 				case COMMAND_ID_DUCK:
+diff --git a/project/include/fearvita/controller_input.h b/project/include/fearvita/controller_input.h
+index a79b396..e045b89 100644
+--- a/project/include/fearvita/controller_input.h
++++ b/project/include/fearvita/controller_input.h
+@@ -34,6 +34,12 @@ struct ControllerRawSample {
+   std::uint8_t ly = 128;
+   std::uint8_t rx = 128;
+   std::uint8_t ry = 128;
++  // Absolute front-touch position normalized to the active Vita panel area.
++  // The three virtual touch buttons above remain available for gameplay, while
++  // these fields let the Retail frontend use touch as a real pointer.
++  bool front_touch_down = false;
++  float front_touch_x = 0.0f;
++  float front_touch_y = 0.0f;
+ };
+ 
+ struct ControllerState {
+@@ -44,6 +50,11 @@ struct ControllerState {
+   float move_y = 0.0f;
+   float look_x = 0.0f;
+   float look_y = 0.0f;
++  bool front_touch_down = false;
++  bool front_touch_pressed = false;
++  bool front_touch_released = false;
++  float front_touch_x = 0.0f;
++  float front_touch_y = 0.0f;
+ 
+   bool Down(ControllerButton button) const { return (buttons & static_cast<std::uint32_t>(button)) != 0; }
+   bool Hit(ControllerButton button) const { return (pressed & static_cast<std::uint32_t>(button)) != 0; }
+diff --git a/project/integration/lithtech/fearvita_lithtech_input_bridge.cpp b/project/integration/lithtech/fearvita_lithtech_input_bridge.cpp
+index dc24ce1..29868b4 100644
+--- a/project/integration/lithtech/fearvita_lithtech_input_bridge.cpp
++++ b/project/integration/lithtech/fearvita_lithtech_input_bridge.cpp
+@@ -29,6 +29,24 @@ extern "C" void FearVita_GetAxisOffsets(float* offsets3) {
+   g_input_runtime.GetAxisOffsets(offsets3);
+ }
+ 
++extern "C" std::uint32_t FearVita_GetControllerButtons() {
++  auto* controller = fearvita::GetActiveControllerInput();
++  return controller ? controller->state().buttons : 0u;
++}
++
++extern "C" bool FearVita_GetFrontTouchState(float* x, float* y, bool* down,
++                                               bool* pressed, bool* released) {
++  auto* controller = fearvita::GetActiveControllerInput();
++  if (!controller) return false;
++  const auto& state = controller->state();
++  if (x) *x = state.front_touch_x;
++  if (y) *y = state.front_touch_y;
++  if (down) *down = state.front_touch_down;
++  if (pressed) *pressed = state.front_touch_pressed;
++  if (released) *released = state.front_touch_released;
++  return true;
++}
++
+ extern "C" void FearVita_SetCommandEdgeCallback(FearVitaCommandEdgeCallback callback,
+                                                   void* user_data) {
+   g_edge_callback = callback;
+diff --git a/project/integration/lithtech/fearvita_lithtech_input_bridge.h b/project/integration/lithtech/fearvita_lithtech_input_bridge.h
+index fc9a19c..349226a 100644
+--- a/project/integration/lithtech/fearvita_lithtech_input_bridge.h
++++ b/project/integration/lithtech/fearvita_lithtech_input_bridge.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include <cstddef>
++#include <cstdint>
+ 
+ // Lightweight C ABI for the Jupiter/F.E.A.R. input seam.  This header does not
+ // include VitaSDK or game-code headers and can therefore be included from the
+@@ -10,6 +11,9 @@ using FearVitaCommandEdgeCallback = void (*)(int command_id, bool on, void* user
+ extern "C" bool FearVita_PollControllerInput();
+ extern "C" bool FearVita_IsCommandOn(int command_id);
+ extern "C" void FearVita_GetAxisOffsets(float* offsets3);
++extern "C" std::uint32_t FearVita_GetControllerButtons();
++extern "C" bool FearVita_GetFrontTouchState(float* x, float* y, bool* down,
++                                               bool* pressed, bool* released);
+ extern "C" void FearVita_SetCommandEdgeCallback(FearVitaCommandEdgeCallback callback,
+                                                   void* user_data);
+ extern "C" std::size_t FearVita_DispatchCommandEdges();
+diff --git a/project/integration/lithtech/fearvita_menu_link_noops.cpp b/project/integration/lithtech/fearvita_menu_link_noops.cpp
+index da8621b..4788715 100644
+--- a/project/integration/lithtech/fearvita_menu_link_noops.cpp
++++ b/project/integration/lithtech/fearvita_menu_link_noops.cpp
+@@ -2,7 +2,7 @@
+ // FEARVita static monolith.  These preserve class/link contracts without
+ // pretending the private Jupiter renderer/physics implementations exist.
+ 
+-#include "../../../lithtech-work/FEAR/Shared/Stdafx.h"
++#include "Stdafx.h"
+ #include "OrbitalScreenshotMgr.h"
+ #include "PerformanceLogMgr.h"
+ #include "ModelDecalMgr.h"
+diff --git a/project/src/controller_input.cpp b/project/src/controller_input.cpp
+index e1ffd75..c8f0d8d 100644
+--- a/project/src/controller_input.cpp
++++ b/project/src/controller_input.cpp
+@@ -69,6 +69,17 @@ bool ControllerInput::Poll(std::string* error) {
+   state_.move_y = -NormalizeAnalogAxis(sample.ly, deadzone_);
+   state_.look_x = NormalizeAnalogAxis(sample.rx, deadzone_);
+   state_.look_y = -NormalizeAnalogAxis(sample.ry, deadzone_);
++
++  const bool previous_touch = state_.front_touch_down;
++  state_.front_touch_down = sample.front_touch_down;
++  state_.front_touch_pressed = sample.front_touch_down && !previous_touch;
++  state_.front_touch_released = !sample.front_touch_down && previous_touch;
++  // Keep the last valid coordinate through the release edge.  Retail mouse-up
++  // handling expects to receive the same control-space position as mouse-down.
++  if (sample.front_touch_down) {
++    state_.front_touch_x = std::clamp(sample.front_touch_x, 0.0f, 1.0f);
++    state_.front_touch_y = std::clamp(sample.front_touch_y, 0.0f, 1.0f);
++  }
+   return true;
+ }
+ 
+diff --git a/project/src/main.cpp b/project/src/main.cpp
+index d30ac38..a9516ac 100644
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -531,7 +531,7 @@ int main() {
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AW; Vita default-control profile + Bubble manual + German Steam loading fallback");
++      "FEARVita 0.02 / M29AX; D-pad + touchscreen retail-menu navigation + German loading fallback");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -614,7 +614,7 @@ int main() {
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AW; Vita default-control profile + Bubble manual + German Steam loading fallback");
++      "FEARVita 0.02 / M29AX; D-pad + touchscreen retail-menu navigation + German loading fallback");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   FearVita_BinkSetCampaignTag(campaign_tag);
+diff --git a/project/src/vita_controller_backend.cpp b/project/src/vita_controller_backend.cpp
+index 7d91b13..64ccc24 100644
+--- a/project/src/vita_controller_backend.cpp
++++ b/project/src/vita_controller_backend.cpp
+@@ -28,7 +28,7 @@ std::uint32_t MapButtons(unsigned int buttons) {
+ 
+ class VitaControllerBackend final : public IControllerBackend {
+  public:
+-  const char* Name() const override { return "vita-scectrl-touch-m29av"; }
++  const char* Name() const override { return "vita-scectrl-touch-m29ax"; }
+ 
+   bool Initialize(std::string* error) override {
+     const int result = sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+@@ -68,10 +68,22 @@ class VitaControllerBackend final : public IControllerBackend {
+       if (sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1) >= 0) {
+         int minX = frontInfo_.minAaX;
+         int maxX = frontInfo_.maxAaX;
++        int minY = frontInfo_.minAaY;
++        int maxY = frontInfo_.maxAaY;
+         if (maxX <= minX) { minX = 0; maxX = 1919; }
++        if (maxY <= minY) { minY = 0; maxY = 1087; }
+         const int width = maxX - minX + 1;
+         const int leftEdge = minX + width / 3;
+         const int rightEdge = minX + (2 * width) / 3;
++        if (touch.reportNum > 0) {
++          const int x = touch.report[0].x;
++          const int y = touch.report[0].y;
++          const float nx = static_cast<float>(x - minX) / static_cast<float>(maxX - minX);
++          const float ny = static_cast<float>(y - minY) / static_cast<float>(maxY - minY);
++          sample->front_touch_down = true;
++          sample->front_touch_x = nx < 0.0f ? 0.0f : (nx > 1.0f ? 1.0f : nx);
++          sample->front_touch_y = ny < 0.0f ? 0.0f : (ny > 1.0f ? 1.0f : ny);
++        }
+         for (SceUInt32 i = 0; i < touch.reportNum; ++i) {
+           const int x = touch.report[i].x;
+           if (x < leftEdge) sample->buttons |= ControllerButton_FrontLeft;
+diff --git a/project/tests/controller_input_smoke.cpp b/project/tests/controller_input_smoke.cpp
+index e9adb2f..6dba0ae 100644
+--- a/project/tests/controller_input_smoke.cpp
++++ b/project/tests/controller_input_smoke.cpp
+@@ -1,5 +1,6 @@
+ #include "fearvita/controller_input.h"
+ #include <psp2/ctrl.h>
++#include <psp2/touch.h>
+ #include <cassert>
+ #include <cmath>
+ #include <iostream>
+@@ -14,9 +15,13 @@ int main() {
+   ControllerInput input(CreatePlatformControllerBackend());
+   std::string error;
+   assert(input.Initialize(&error));
+-  assert(std::string(input.backend_name()) == "vita-scectrl-m12");
++  assert(std::string(input.backend_name()) == "vita-scectrl-touch-m29ax");
+ 
+   auto& sample = mock_ctrl_next_sample();
++  auto& touch = mock_touch_front_sample();
++  touch.reportNum = 1;
++  touch.report[0].x = 960;
++  touch.report[0].y = 272;
+   sample.buttons = SCE_CTRL_CROSS | SCE_CTRL_RTRIGGER | SCE_CTRL_UP;
+   sample.lx = 255; sample.ly = 0; sample.rx = 128; sample.ry = 255;
+   assert(input.Poll(&error));
+@@ -24,9 +29,14 @@ int main() {
+   assert(first.Hit(ControllerButton_Cross));
+   assert(first.Down(ControllerButton_R));
+   assert(first.Hit(ControllerButton_Up));
++  assert(first.Hit(ControllerButton_FrontCenter));
++  assert(first.front_touch_down && first.front_touch_pressed && !first.front_touch_released);
++  assert(first.front_touch_x > .49f && first.front_touch_x < .51f);
++  assert(first.front_touch_y > .24f && first.front_touch_y < .26f);
+   assert(first.move_x > .99f && first.move_y > .99f);
+   assert(std::fabs(first.look_x) < .001f && first.look_y < -.99f);
+ 
++  touch.reportNum = 0;
+   sample.buttons = SCE_CTRL_RTRIGGER;
+   sample.lx = sample.ly = sample.rx = sample.ry = 128;
+   assert(input.Poll(&error));
+@@ -34,6 +44,10 @@ int main() {
+   assert(!second.Hit(ControllerButton_R));
+   assert((second.released & ControllerButton_Cross) != 0);
+   assert((second.released & ControllerButton_Up) != 0);
++  assert((second.released & ControllerButton_FrontCenter) != 0);
++  assert(!second.front_touch_down && second.front_touch_released);
++  assert(second.front_touch_x > .49f && second.front_touch_x < .51f);
++  assert(second.front_touch_y > .24f && second.front_touch_y < .26f);
+   input.Shutdown();
+   std::cout << "Milestone 12 Vita controller normalization/edge smoke: PASS\n";
+ }
+diff --git a/project/tests/lithtech_input_bridge_smoke.cpp b/project/tests/lithtech_input_bridge_smoke.cpp
+index a3a5012..93fa7f0 100644
+--- a/project/tests/lithtech_input_bridge_smoke.cpp
++++ b/project/tests/lithtech_input_bridge_smoke.cpp
+@@ -38,18 +38,31 @@ int main() {
+ 
+   raw->sample.buttons = fearvita::ControllerButton_R | fearvita::ControllerButton_Cross;
+   raw->sample.rx = 255;
++  raw->sample.front_touch_down = true;
++  raw->sample.front_touch_x = 0.75f;
++  raw->sample.front_touch_y = 0.25f;
+   assert(FearVita_PollControllerInput());
+   assert(FearVita_IsCommandOn(fearvita::FearCommand_Firing));
+   assert(FearVita_IsCommandOn(fearvita::FearCommand_Jump));
+   float axes[3]{};
+   FearVita_GetAxisOffsets(axes);
+   assert(axes[0] > 0.9f && std::fabs(axes[2]) < 0.001f);
++  assert((FearVita_GetControllerButtons() & fearvita::ControllerButton_R) != 0);
++  float tx = 0.0f, ty = 0.0f;
++  bool touchDown = false, touchPressed = false, touchReleased = false;
++  assert(FearVita_GetFrontTouchState(&tx, &ty, &touchDown, &touchPressed, &touchReleased));
++  assert(touchDown && touchPressed && !touchReleased);
++  assert(std::fabs(tx - 0.75f) < 0.001f && std::fabs(ty - 0.25f) < 0.001f);
+   assert(FearVita_DispatchCommandEdges() >= 2);
+ 
+   raw->sample.buttons = 0;
+   raw->sample.rx = 128;
++  raw->sample.front_touch_down = false;
+   assert(FearVita_PollControllerInput());
+   assert(!FearVita_IsCommandOn(fearvita::FearCommand_Firing));
++  assert(FearVita_GetFrontTouchState(&tx, &ty, &touchDown, &touchPressed, &touchReleased));
++  assert(!touchDown && !touchPressed && touchReleased);
++  assert(std::fabs(tx - 0.75f) < 0.001f && std::fabs(ty - 0.25f) < 0.001f);
+   const auto before = g_edges.size();
+   assert(FearVita_DispatchCommandEdges() >= 2);
+   assert(g_edges.size() > before);
+diff --git a/project/tests/vita_ctrl_mock/psp2/kernel/processmgr.h b/project/tests/vita_ctrl_mock/psp2/kernel/processmgr.h
+new file mode 100644
+index 0000000..a7b0e02
+--- /dev/null
++++ b/project/tests/vita_ctrl_mock/psp2/kernel/processmgr.h
+@@ -0,0 +1,4 @@
++#pragma once
++#include <psp2/types.h>
++inline SceUInt64& mock_process_time_us() { static SceUInt64 v = 1000000; return v; }
++inline SceUInt64 sceKernelGetProcessTimeWide() { return mock_process_time_us(); }
+diff --git a/project/tests/vita_ctrl_mock/psp2/touch.h b/project/tests/vita_ctrl_mock/psp2/touch.h
+new file mode 100644
+index 0000000..f67ee8a
+--- /dev/null
++++ b/project/tests/vita_ctrl_mock/psp2/touch.h
+@@ -0,0 +1,41 @@
++#pragma once
++#include <psp2/types.h>
++
++enum SceTouchPortType {
++  SCE_TOUCH_PORT_FRONT = 0,
++  SCE_TOUCH_PORT_BACK = 1,
++};
++enum SceTouchSamplingState {
++  SCE_TOUCH_SAMPLING_STATE_STOP = 0,
++  SCE_TOUCH_SAMPLING_STATE_START = 1,
++};
++struct SceTouchPanelInfo {
++  SceInt16 minAaX = 0, minAaY = 0, maxAaX = 1919, maxAaY = 1087;
++  SceInt16 minDispX = 0, minDispY = 0, maxDispX = 959, maxDispY = 543;
++  SceUInt8 minForce = 0, maxForce = 255, reserved[30]{};
++};
++struct SceTouchReport {
++  SceUInt8 id = 0, force = 0;
++  SceInt16 x = 0, y = 0;
++  SceUInt8 reserved[8]{};
++  SceUInt16 info = 0;
++};
++struct SceTouchData {
++  SceUInt64 timeStamp = 0;
++  SceUInt32 status = 0;
++  SceUInt32 reportNum = 0;
++  SceTouchReport report[8]{};
++};
++inline SceTouchData& mock_touch_front_sample() { static SceTouchData v{}; return v; }
++inline SceTouchData& mock_touch_back_sample() { static SceTouchData v{}; return v; }
++inline int sceTouchSetSamplingState(SceUInt32, SceTouchSamplingState) { return 0; }
++inline int sceTouchGetPanelInfo(SceUInt32, SceTouchPanelInfo* out) {
++  if (!out) return -1;
++  *out = SceTouchPanelInfo{};
++  return 0;
++}
++inline int sceTouchPeek(SceUInt32 port, SceTouchData* out, SceUInt32 count) {
++  if (!out || count == 0) return -1;
++  *out = (port == SCE_TOUCH_PORT_BACK) ? mock_touch_back_sample() : mock_touch_front_sample();
++  return 1;
++}
+diff --git a/project/tests/vita_ctrl_mock/psp2/types.h b/project/tests/vita_ctrl_mock/psp2/types.h
+new file mode 100644
+index 0000000..6fbdead
+--- /dev/null
++++ b/project/tests/vita_ctrl_mock/psp2/types.h
+@@ -0,0 +1,7 @@
++#pragma once
++#include <cstdint>
++using SceInt16 = std::int16_t;
++using SceUInt8 = std::uint8_t;
++using SceUInt16 = std::uint16_t;
++using SceUInt32 = std::uint32_t;
++using SceUInt64 = std::uint64_t;
+diff --git a/project/tools/generate_vita_manual.py b/project/tools/generate_vita_manual.py
+index 173b6ce..9c97a19 100644
+--- a/project/tools/generate_vita_manual.py
++++ b/project/tools/generate_vita_manual.py
+@@ -43,7 +43,7 @@ def base_page(num, title, kicker="FEARVITA · HANDBUCH"):
+     d.text((42,61), title, font=font(35, True), fill=WHITE)
+     d.line((42,111,918,111), fill=LINE, width=2)
+     d.line((42,500,918,500), fill=LINE, width=1)
+-    d.text((42,510), "FEARVita 0.02 · M29AW", font=font(13), fill=MUTED)
++    d.text((42,510), "FEARVita 0.02 · M29AX", font=font(13), fill=MUTED)
+     d.text((860,508), f"{num:02d}/05", font=font(15, True), fill=PINK)
+     return im, d
+ 
+@@ -87,8 +87,8 @@ def save_pages(outdir: Path):
+ 
+     im,d = base_page(3, "Spielauswahl & Menüs")
+     y=138
+-    y=bullet(d, "Touch", "Ein Tap markiert ein Spiel mit Rahmen. Ein zweiter Tap auf das markierte Spiel startet es.", y)
+-    y=bullet(d, "Tasten", "Steuerkreuz wählt, X bestätigt, Kreis geht zurück. START öffnet bzw. schließt später das Pausenmenü.", y)
++    y=bullet(d, "Touch", "Im Spielauswahl- und Retail-Menü bewegt Touch den Zeiger; ein Tap aktiviert das getroffene Menüelement.", y)
++    y=bullet(d, "Tasten", "Steuerkreuz navigiert in Retail-Menüs, X bestätigt, Kreis geht zurück. START öffnet bzw. schließt das Pausenmenü.", y)
+     y=bullet(d, "Original-Sounds", "Auswahl und Bestätigung verwenden die Retail-Menüsounds des Spiels.", y)
+     y=bullet(d, "Standard", "Unter Steuerung > Standard wiederherstellen wird immer das FEARVita-Vita-Profil geladen – in allen drei Kampagnen.", y)
+     im.save(outdir/'003.png', optimize=True)
