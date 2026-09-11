@@ -44,7 +44,7 @@ def base_page(num, title, kicker="FEARVITA · HANDBUCH"):
     d.text((42, 61), title, font=font(35, True), fill=WHITE)
     d.line((42, 111, 918, 111), fill=LINE, width=2)
     d.line((42, 500, 918, 500), fill=LINE, width=1)
-    d.text((42, 510), "FEARVita 0.02 · M29AW", font=font(13), fill=MUTED)
+    d.text((42, 510), "FEARVita 0.02 · M29AX", font=font(13), fill=MUTED)
     d.text((860, 508), f"{num:02d}/05", font=font(15, True), fill=PINK)
     return im, d
 
@@ -88,8 +88,8 @@ def save_pages(outdir: Path):
 
     im, d = base_page(3, "Spielauswahl & Menüs")
     y = 138
-    y = bullet(d, "Touch", "Ein Tap markiert ein Spiel mit Rahmen. Ein zweiter Tap auf das markierte Spiel startet es.", y)
-    y = bullet(d, "Tasten", "Steuerkreuz wählt, X bestätigt, Kreis geht zurück. START öffnet bzw. schließt später das Pausenmenü.", y)
+    y = bullet(d, "Touch", "Im Spielauswahl- und Retail-Menü bewegt Touch den Zeiger; ein Tap aktiviert das getroffene Menüelement.", y)
+    y = bullet(d, "Tasten", "Steuerkreuz navigiert in Retail-Menüs, X bestätigt, Kreis geht zurück. START öffnet bzw. schließt das Pausenmenü.", y)
     y = bullet(d, "Original-Sounds", "Auswahl und Bestätigung verwenden die Retail-Menüsounds des Spiels.", y)
     y = bullet(d, "Standard", "Unter Steuerung > Standard wiederherstellen wird immer das FEARVita-Vita-Profil geladen – in allen drei Kampagnen.", y)
     im.save(outdir / "003.png", optimize=True)
