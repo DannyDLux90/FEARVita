@@ -1,19 +1,17 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AT  
+**Internal checkpoint:** M29AU  
 **Date:** 2026-09-11
 
-The three-game frontend/menu-video milestone is complete on real PS Vita hardware: **F.E.A.R.**, **Extraction Point** and **Perseus Mandate** all reach their retail menus and play their original animated menu backgrounds with retail menu music/UI sounds. The Vita-system-language overlay is restored and was confirmed German on hardware in M29AS.
+The three-game frontend/menu-video milestone is complete on real PS Vita hardware: **F.E.A.R.**, **Extraction Point** and **Perseus Mandate** all reach their retail menus and play their original animated menu backgrounds with retail menu music/UI sounds. Vita-system-language localization is restored and the accepted frontend presentation remains unchanged.
 
-M29AT begins the next milestone: advance from the retail menu into a real single-player session while keeping the accepted frontend unchanged.
+M29AT hardware testing proved the first single-player world path is now selected correctly in all three campaigns. F.E.A.R., Extraction Point and Perseus Mandate each resolve `Worlds\\Release\\Intro`, confirm the world exists, reset the player camera and switch successfully to `ScreenPreload`. The separate per-campaign logs (`fear_fear.log`, `fear_ep.log`, `fear_pm.log`) are working as intended.
 
-Diagnostics are now split so one campaign never overwrites another: `fear_launcher.log`, `fear_fear.log`, `fear_ep.log`, and `fear_pm.log` under `ux0:data/FEARVita/`.
+The M29AT stall was not a missing world file. The Vita frontend optimization intentionally skipped `CScreenMgr::UpdateInterfaceSFX()` on all retail screens to avoid still-partial ClientFX/model services. `CScreenPreload::UpdateInterfaceSFX()` is special, however: it drives the mission start state machine (`FinishStartGame` -> `StartClientServer` -> client loading handshake). Because that update was skipped, all three campaigns remained on ScreenPreload while the outer retail loop continued indefinitely.
 
-The Weapons options screen now has Vita-native priority editing. X selects a weapon; Left/Right moves that selected weapon up/down in the retail priority list. The existing profile save/apply path is retained.
+M29AU preserves the stable frontend behavior for normal screens but enables retail `UpdateInterfaceSFX()` for the state-machine screens `SCREEN_ID_PRELOAD` and `SCREEN_ID_POSTLOAD`. The next hardware target is therefore to move beyond preload into `FinishStartGameFromLevel`, the local `STARTGAME_NORMAL` bridge and the real server/world-runtime frontier.
 
-For New Game, the Vita ILTClient now accepts a **local `STARTGAME_NORMAL` session shim only** instead of returning `LT_UNSUPPORTED`. The client can therefore proceed through first mission/world selection, preload and the local StartGame seam. The full FEAR ObjectDLL/server transport is still not online, so M29AT intentionally defers `MID_START_GAME` / `MID_START_LEVEL` CAutoMessages and logs the exact point where the real world/server-object runtime is still required. This checkpoint does **not** claim playable gameplay yet.
+The Weapons options priority editor from M29AT is retained: X selects a weapon, Left/Right reorders it, and the existing retail profile save/apply path persists the list.
 
-A separate ObjectDLL compile probe confirms the next server milestone still has real portability work: FEAR server-object property macros and several server-side SDK/API contracts differ from the currently exposed open runtime interfaces.
-
-Next hardware step: base F.E.A.R. -> Single Player -> New Game -> choose difficulty, then collect `ux0:data/FEARVita/fear_fear.log` and any core dump. That trace decides the next ingame implementation seam.
+The full FEAR ObjectDLL/server runtime is still not claimed complete. M29AU is an authentic loading-state handoff checkpoint intended to expose the next real ObjectDLL/world-loading blocker rather than mask it.
