@@ -1,15 +1,18 @@
 # FEARVita current state
 
 **Public version:** 0.02  
-**Internal checkpoint:** M29AN  
-**Date:** 2026-09-10
+**Internal checkpoint:** M29AO  
+**Date:** 2026-09-11
 
-The F.E.A.R. base-game main menu is accepted on hardware and remains unchanged. The M29AM visual flow is also accepted: launch enters the campaign selector directly, and F.E.A.R. / Extraction Point / Perseus Mandate use their correct per-campaign loading presentation with loading phase text and progress.
+The launcher / loading flow and the F.E.A.R. base-game menu are accepted on hardware and should remain unchanged. M29AN also cleared the remaining frontend blocker for both expansions: Extraction Point and Perseus Mandate now reach `frontend-main-ok`, `complete`, engine init result 0 and enter their retail menus.
 
-Both EP and PM now fully decode their main expansion GADB after the late `Surfaces/WeaponFX` compatibility fix. M29AM hardware logs then reach `player-movemgr-ok`, resolve expansion weapon records `NailGun`, `Cannon` and `Plasma`, and data-abort before `player-weaponmgr-ok`.
+The remaining milestone item is now only the animated retail menu background for EP/PM. Hardware identifies the exact movies and cache targets:
+- F.E.A.R.: `Videos\\Menu.bik` -> `video_cache/fear/videos/menu.mp4` (already working)
+- Extraction Point: `VideosXP\\Menu.bik` -> `video_cache/ep/videosxp/menu.mp4`
+- Perseus Mandate: `VideosXP2\\MenuXP2.bik` -> `video_cache/pm/videosxp2/menuxp2.mp4`
 
-The paired Vita core dumps point to the same frontend failure site: `AnimPropUtils::Enum()` constructs a `CAutoMessage` for a newly discovered expansion animation property, while the Vita ILTClient compatibility layer currently has no `ILTCommon` implementation and returns `NULL` from `Common()`. This makes `g_pCommonLT` unavailable during the dynamic animation-property synchronization message.
+M29AN already exports EP's movie as `ux0:data/FEARVita/debug/Menu_ep.bik`. PM did not export because the old menu-movie detector only recognized names ending in `Menu.bik`; PM uses `MenuXP2.bik`.
 
-M29AN keeps newly discovered dynamic animation-property mappings local when `g_pCommonLT` is unavailable on Vita and skips only that client/server synchronization message in the current frontend-only runtime. PC/upstream behavior is unchanged. `PlayerMgr` now logs `player-commonlt-ok` or `player-commonlt-null-local-anim-sync` before ClientWeaponMgr initialization so the next hardware result is explicit.
+M29AO fixes menu-movie classification to accept any `.bik` whose basename starts with `menu`. This makes PM's `MenuXP2.bik` a looping menu movie, exports it as `ux0:data/FEARVita/debug/Menu_pm.bik`, and keeps the existing campaign-isolated MP4 cache lookup. The cache-preparation tool/docs are also corrected to the actual EP/PM virtual paths.
 
-Next hardware priority: boot EP and PM and confirm progress beyond `NailGun/Cannon/Plasma` toward `player-weaponmgr-ok`, `frontend-main-ok` and `complete`. Any later crash becomes the next isolated compatibility seam.
+Next hardware step: run M29AO once, collect `Menu_ep.bik` and `Menu_pm.bik`, convert those exact user-owned files to H.264 MP4, package them into the two expansion cache paths above, then verify both menu backgrounds visible/looping. That closes the three-game frontend/menu milestone.
