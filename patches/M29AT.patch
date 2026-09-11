@@ -1,0 +1,423 @@
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -271,7 +271,7 @@
+       DrawText(font, kLeft, 125.0f, 0.90f, title.c_str(), RGBA8(255,210,160,255));
+       DrawText(font, kLeft, 175.0f, 0.72f, detail.c_str(), RGBA8(220,220,220,255));
+       DrawText(font, kLeft, 245.0f, 0.70f,
+-               "Log: ux0:data/FEARVita/fear_menu_boot.log", RGBA8(170,170,170,255));
++               "Logs: ux0:data/FEARVita/fear_<campaign>.log", RGBA8(170,170,170,255));
+       DrawText(font, kLeft, 285.0f, 0.70f,
+                "Kreis/START: beenden", RGBA8(170,170,170,255));
+       renderer.EndFrame(&render_error);
+@@ -529,9 +529,9 @@
+   sceIoMkdir("ux0:data/FEARVita", 0777);
+   sceIoMkdir("ux0:data/FEARVita/data", 0777);
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+-  fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_menu_boot.log");
++  fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AS; Vita-language priority restored + weapon runtime trace");
++      "FEARVita 0.02 / M29AT; per-campaign logs + weapon reorder + singleplayer start bridge");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -605,13 +605,16 @@
+     return 0;
+   }
+ 
+-  // M29AM: reset the overlay before announcing the campaign.  The selected
+-  // campaign diagnostic arms the overlay and assigns the correct artwork.
+-  // Resetting after that diagnostic used to wipe the campaign back to FEAR.
+-  fearvita::ResetBootProgressOverlay();
+-  fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
++  // M29AT: keep one persistent log per campaign so FEAR / EP / PM hardware
++  // traces never overwrite each other.  The selector itself uses fear_launcher.log.
+   const char* campaign_tag = selected->info.id == fearvita::CampaignId::ExtractionPoint ? "ep" :
+       (selected->info.id == fearvita::CampaignId::PerseusMandate ? "pm" : "fear");
++  const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
++  fearvita::ConfigureRuntimeDiagnostics(campaign_log);
++  fearvita::RuntimeDiagnostic("startup",
++      "FEARVita 0.02 / M29AT; per-campaign logs + weapon reorder + singleplayer start bridge");
++  fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
++  fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
+   const fearvita::MenuBootResult boot = fearvita::AttemptFearMenuBoot(*selected);
+--- a/project/integration/lithtech/fearvita_iltclient_vita.cpp
++++ b/project/integration/lithtech/fearvita_iltclient_vita.cpp
+@@ -14,6 +14,7 @@
+ #include "iltrenderer.h"
+ #include "ltmodule.h"
+ #include "fearvita/frame_renderer.h"
++#include "fearvita/runtime_diagnostics.h"
+ 
+ #include <algorithm>
+ #include <chrono>
+@@ -48,6 +49,8 @@
+ std::map<std::string, ConsoleVar> g_console;
+ std::map<std::string, ConsoleProgramFn> g_consolePrograms;
+ bool g_inputEnabled = true;
++bool g_localSessionConnected = false;
++uint32 g_localSendCount = 0;
+ 
+ ConsoleVar* AsConsole(HCONSOLEVAR h) {
+   return reinterpret_cast<ConsoleVar*>(h);
+@@ -62,19 +65,36 @@
+ LTRESULT GetLocalClientIDFn(uint32* id) {
+   if (!id) return LT_INVALIDPARAMS;
+   *id = 0;
+-  return LT_NOTCONNECTED;
++  return g_localSessionConnected ? LT_OK : LT_NOTCONNECTED;
+ }
+ 
+-bool IsConnectedFn() { return false; }
++bool IsConnectedFn() { return g_localSessionConnected; }
+ 
+ LTRESULT GetGameModeFn(int* mode) {
+   if (!mode) return LT_INVALIDPARAMS;
+-  *mode = 0;  // GAMEMODE_NONE while no server/world exists.
++  *mode = g_localSessionConnected ? STARTGAME_NORMAL : GAMEMODE_NONE;
+   return LT_OK;
+ }
+ 
+-LTRESULT StartGameFn(StartGameRequest*) { return LT_UNSUPPORTED; }
+-void DisconnectFn() {}
++LTRESULT StartGameFn(StartGameRequest* request) {
++  if (!request) return LT_INVALIDPARAMS;
++  if (request->m_Type != STARTGAME_NORMAL) {
++    fearvita::RuntimeDiagnostic("ingame-client",
++        std::string("start-game unsupported type=") + std::to_string(request->m_Type));
++    return LT_UNSUPPORTED;
++  }
++  g_localSessionConnected = true;
++  g_localSendCount = 0;
++  fearvita::RuntimeDiagnostic("ingame-client",
++      "start-game type=STARTGAME_NORMAL accepted local-session-shim=1");
++  return LT_OK;
++}
++void DisconnectFn() {
++  if (g_localSessionConnected)
++    fearvita::RuntimeDiagnostic("ingame-client", "disconnect local-session-shim");
++  g_localSessionConnected = false;
++  g_localSendCount = 0;
++}
+ void ShutdownFn() { std::exit(0); }
+ 
+ bool IntersectSegmentFn(ClientIntersectQuery*, ClientIntersectInfo*) { return false; }
+@@ -640,7 +660,16 @@
+   LTRESULT EndQuery() override { return LT_OK; }
+   LTRESULT GetSConValueFloat(const char*, float& val) override { val = 0.0f; return LT_NOTFOUND; }
+   LTRESULT GetSConValueString(const char*, char* val, uint32 len) override { if (val && len) val[0] = 0; return LT_NOTFOUND; }
+-  LTRESULT SendToServer(ILTMessage_Read*, uint32) override { return LT_UNSUPPORTED; }
++  LTRESULT SendToServer(ILTMessage_Read*, uint32 flags) override {
++    if (!g_localSessionConnected) return LT_NOTCONNECTED;
++    if (g_localSendCount < 12) {
++      fearvita::RuntimeDiagnostic("ingame-client",
++          std::string("send-to-server deferred local-session-shim flags=") + std::to_string(flags) +
++          " count=" + std::to_string(g_localSendCount));
++    }
++    ++g_localSendCount;
++    return LT_OK;
++  }
+   LTRESULT GetServerIPAddress(uint8 addr[4], uint16* port) override { if (addr) std::memset(addr, 0, 4); if (port) *port = 0; return LT_NOTFOUND; }
+   LTRESULT ProcessAttachments(HOBJECT) override { return LT_OK; }
+   LTRESULT GetSpriteControl(HLOCALOBJ, ILTSpriteControl*& control) override { control = nullptr; return LT_NOTFOUND; }
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ScreenWeapons.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ScreenWeapons.cpp
+@@ -256,6 +256,48 @@
+ 	return 1;
+ }
+ 
++bool CScreenWeapons::OnLeft()
++{
++	if (m_pSelectedWpn)
++	{
++		uint32 nIndex = m_pWeapons->GetIndex(m_pSelectedWpn);
++		if (nIndex != CLTGUIListCtrl::kNoSelection && nIndex > 0)
++		{
++			OnCommand(CMD_UP, 0, 0);
++			m_pWeapons->SetSelection(nIndex - 1);
++			SelectWeapon(m_pSelectedWpn);
++			g_pInterfaceMgr->RequestInterfaceSound(IS_CHANGE);
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++			fearvita::RuntimeDiagnostic("weapon-audit", std::string("reorder dir=up index=") + std::to_string(nIndex) +
++				" new-index=" + std::to_string(nIndex - 1));
++#endif
++			return true;
++		}
++	}
++	return CBaseScreen::OnLeft();
++}
++
++bool CScreenWeapons::OnRight()
++{
++	if (m_pSelectedWpn)
++	{
++		uint32 nIndex = m_pWeapons->GetIndex(m_pSelectedWpn);
++		if (nIndex != CLTGUIListCtrl::kNoSelection && nIndex + 1 < m_pWeapons->GetNumControls())
++		{
++			OnCommand(CMD_DOWN, 0, 0);
++			m_pWeapons->SetSelection(nIndex + 1);
++			SelectWeapon(m_pSelectedWpn);
++			g_pInterfaceMgr->RequestInterfaceSound(IS_CHANGE);
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++			fearvita::RuntimeDiagnostic("weapon-audit", std::string("reorder dir=down index=") + std::to_string(nIndex) +
++				" new-index=" + std::to_string(nIndex + 1));
++#endif
++			return true;
++		}
++	}
++	return CBaseScreen::OnRight();
++}
++
+ void CScreenWeapons::OnFocus(bool bFocus)
+ {
+ 	if (bFocus)
+@@ -358,6 +400,9 @@
+ 
+ 	pProfile->ApplyWeaponPriorities();
+ 	pProfile->Save();
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("weapon-audit", std::string("saved-priorities count=") + std::to_string(pProfile->m_vecWeapons.size()));
++#endif
+ 
+ }
+ 
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ScreenWeapons.h
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ScreenWeapons.h
+@@ -22,6 +22,8 @@
+ 	// Build the folder
+ 	bool	Build();
+ 	void	OnFocus(bool bFocus);
++	virtual bool OnLeft();
++	virtual bool OnRight();
+ 
+ 
+ protected:
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ScreenSingle.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ScreenSingle.cpp
+@@ -24,6 +24,9 @@
+ #include "iltfilemgr.h"
+ #include "ltprofileutils.h"
+ #include "GameModeMgr.h"
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/runtime_diagnostics.h"
++#endif
+ 
+ #ifdef _FINAL
+ #define _REMOVE_CUSTOM_LEVELS
+@@ -284,24 +287,36 @@
+ 		}
+ 	case CMD_EASY:
+ 		{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++			fearvita::RuntimeDiagnostic("ingame-start", "difficulty=easy");
++#endif
+ 			g_pGameClientShell->SetDifficulty(GD_EASY);
+ 			g_pMissionMgr->StartGameNew( );
+ 			break;
+ 		}
+ 	case CMD_MEDIUM:
+ 		{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++			fearvita::RuntimeDiagnostic("ingame-start", "difficulty=medium");
++#endif
+ 			g_pGameClientShell->SetDifficulty(GD_NORMAL);
+ 			g_pMissionMgr->StartGameNew( );
+ 			break;
+ 		}
+ 	case CMD_HARD:
+ 		{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++			fearvita::RuntimeDiagnostic("ingame-start", "difficulty=hard");
++#endif
+ 			g_pGameClientShell->SetDifficulty(GD_HARD);
+ 			g_pMissionMgr->StartGameNew( );
+ 			break;
+ 		}
+ 	case CMD_INSANE:
+ 		{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++			fearvita::RuntimeDiagnostic("ingame-start", "difficulty=insane");
++#endif
+ 			g_pGameClientShell->SetDifficulty(GD_VERYHARD);
+ 			g_pMissionMgr->StartGameNew( );
+ 			break;
+--- a/lithtech-overlay/FEAR/ClientShellDLL/MissionMgr.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/MissionMgr.cpp
+@@ -32,6 +32,9 @@
+ #include "HUDScores.h"
+ #include "MissionDB.h"
+ #include "ScreenVote.h"
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/runtime_diagnostics.h"
++#endif
+ 
+ extern VarTrack g_vtScreenFadeInTime;
+ 
+@@ -124,6 +127,9 @@
+ // ----------------------------------------------------------------------- //
+ bool CMissionMgr::StartGameNew( )
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("ingame-start", "mission-start-new enter");
++#endif
+ 	// Default to use the first mission.
+ 	HRECORD hMissionRec = NULL;
+ 
+@@ -183,6 +189,9 @@
+ 	char const* pszLevelFilename = g_pMissionDB->GetWorldName(hLevel,true);
+ 	if( !pszLevelFilename )
+ 		return false;
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("ingame-start", std::string("first-world=") + pszLevelFilename);
++#endif
+ 
+ 	// Start from the first level.
+ 	if( !StartGameFromLevel( pszLevelFilename ))
+@@ -200,6 +209,9 @@
+ // ----------------------------------------------------------------------- //
+ bool CMissionMgr::StartGameFromLevel( char const* pszFilename )
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("ingame-start", std::string("start-from-level world=") + (pszFilename ? pszFilename : "<null>"));
++#endif
+ 	// Check inputs.
+ 	if( !pszFilename || !pszFilename[0] )
+ 	{
+@@ -260,13 +272,35 @@
+ bool CMissionMgr::FinishStartGameFromLevel()
+ {
+ 	m_eStartGameState = eStartGameStarted;
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("ingame-start", std::string("finish-start world=") + m_sCurrentWorldName);
++#endif
+ 
+ 	// Make sure we have a server started.
+ 	if( !g_pClientConnectionMgr->StartClientServer( ))
+ 	{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		fearvita::RuntimeDiagnostic("ingame-start", "start-client-server failed");
++#endif
+ 		return false;
+ 	}
+ 
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	// The Vita port does not have the ObjectDLL/server transport online yet.
++	// Do not construct CAutoMessage here: that path requires ILTCommon from the
++	// full engine server runtime.  Advance the client through the authentic
++	// loading/handshake state and make the next missing runtime seam observable.
++	fearvita::RuntimeDiagnostic("ingame-start",
++		"local-session accepted; deferring MID_START_GAME/MID_START_LEVEL until ObjectDLL transport is online");
++	if( !ClientHandshaking( m_sCurrentWorldName.c_str() ))
++	{
++		fearvita::RuntimeDiagnostic("ingame-start", "client-handshake failed");
++		return false;
++	}
++	fearvita::RuntimeDiagnostic("ingame-start",
++		"client-handshake ok; waiting-for-world/server-object-runtime");
++	return true;
++#else
+ 	// Send the start game message.
+ 	if( !SendStartGameMessage( ))
+ 		return false;
+@@ -278,6 +312,7 @@
+ 	g_pLTClient->SendToServer( cMsg.Read(), MESSAGE_GUARANTEED );
+ 
+ 	return true;
++#endif
+ }
+ 
+ // ----------------------------------------------------------------------- //
+@@ -1083,8 +1118,16 @@
+ 
+ bool CMissionMgr::SetNewLevel( char const* pszWorldName )
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	const bool bWorldExists = pszWorldName && pszWorldName[0] && WorldExists(pszWorldName);
++	fearvita::RuntimeDiagnostic("ingame-start", std::string("set-new-level world=") +
++		(pszWorldName ? pszWorldName : "<null>") + " exists=" + (bWorldExists ? "1" : "0"));
++	// Check inputs.
++	if( !pszWorldName || !pszWorldName[0] || !bWorldExists )
++#else
+ 	// Check inputs.
+ 	if( !pszWorldName || !pszWorldName[0] || !WorldExists(pszWorldName) )
++#endif
+ 	{
+ 		ASSERT( !"CMissionMgr::SetNewLevel:  Invalid world name." );
+ 		return false;
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ClientConnectionMgr.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ClientConnectionMgr.cpp
+@@ -33,6 +33,9 @@
+ #include "iltfilemgr.h"
+ #include "TargetMgr.h"
+ #include "PlayerCamera.h"
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/runtime_diagnostics.h"
++#endif
+ 
+ // the ILTClientContentTransfer interface
+ #include "iltclientcontenttransfer.h"
+@@ -1370,6 +1373,9 @@
+ 
+ bool ClientConnectionMgr::StartServerAsSinglePlayer( )
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("ingame-connection", "start-single-player enter");
++#endif
+ 	// Check if we're already connected to a server.
+   	if( g_pLTClient->IsConnected( ))
+ 	{
+@@ -1401,6 +1407,10 @@
+ 	g_pLTClient->SetConsoleVariableFloat("Prediction", 0.0f);
+ 
+     m_nLastConnectionResult = g_pLTClient->StartGame(&m_StartGameRequest);
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("ingame-connection", std::string("StartGame result=") +
++		std::to_string(m_nLastConnectionResult) + " type=" + std::to_string(m_StartGameRequest.m_Type));
++#endif
+ 
+ 	return ( m_nLastConnectionResult == LT_OK );
+ }
+--- a/lithtech-overlay/FEAR/ClientShellDLL/ScreenPreload.cpp
++++ b/lithtech-overlay/FEAR/ClientShellDLL/ScreenPreload.cpp
+@@ -17,6 +17,9 @@
+ #include "GameClientShell.h"
+ #include "ClientConnectionMgr.h"
+ #include "MissionMgr.h"
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/runtime_diagnostics.h"
++#endif
+ 
+ 
+ namespace
+@@ -77,6 +80,14 @@
+ 
+ bool CScreenPreload::UpdateInterfaceSFX()
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	static bool s_bLoggedEnter = false;
++	if (!s_bLoggedEnter)
++	{
++		fearvita::RuntimeDiagnostic("ingame-start", "preload-screen update-enter");
++		s_bLoggedEnter = true;
++	}
++#endif
+ 	if( m_bFirstUpdate )
+ 	{
+ 		m_bFirstUpdate = false;
+@@ -90,6 +101,14 @@
+ 	bool bSuccess = g_pMissionMgr->FinishExitLevel();
+ 
+ 	bSuccess = bSuccess && g_pMissionMgr->FinishStartGame();
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	static bool s_bLoggedFinish = false;
++	if (!s_bLoggedFinish)
++	{
++		fearvita::RuntimeDiagnostic("ingame-start", std::string("preload FinishStartGame result=") + (bSuccess ? "1" : "0"));
++		s_bLoggedFinish = true;
++	}
++#endif
+ 
+ 	if (!bSuccess)
+ 	{
