@@ -1,0 +1,35 @@
+FEARVita M29AR menu completeness audit
+Date: 2026-09-11
+
+Scope
+- F.E.A.R., Extraction Point and Perseus Mandate single-player/frontend menu tree.
+- Main menu and Options submenus: Display, Audio, Performance, Advanced CPU/GPU, Controls, Configure controls, Mouse, Joystick, Game, Crosshair, Weapons, Profile, Load/Save and loading/failure screens.
+
+Static link audit
+- Every visible single-player/options SetCurrentScreen target has a registered screen implementation in the Vita executable.
+- Options -> Performance -> Advanced CPU and Advanced GPU target the correct dedicated screens.
+- Options -> Weapons targets ScreenWeapons and uses the campaign WeaponDB records.
+- Game -> Crosshair, Controls -> Configure/Mouse/Joystick, Main -> Single/Profile/Options all have registered targets.
+- The dormant retail CMD_KEYBOARD path has no ScreenKeyboard implementation in the released FEAR source; on Vita M29AR aliases it to ScreenConfigure so it cannot dead-end if exposed by a database/localization variant.
+- Retail PC Multiplayer switches to a separate executable and the network/server-browser screen is intentionally not linked into the current Vita single-player executable. Multiplayer/network gameplay is therefore tracked separately and is not claimed complete by this menu/weapon milestone.
+
+Corrections included in M29AR
+1. Campaign selector touch semantics:
+   - first tap selects/highlights a campaign and keeps the frame visible;
+   - second tap on the highlighted campaign starts it;
+   - Cross still starts the highlighted campaign.
+2. Campaign selector retail sounds:
+   - selection change: interface\Snd\selectchange.wav
+   - activation/start: interface\Snd\select.wav
+   - base FEAR VFS is mounted before the selector so these user-owned retail WAVs can be decoded by the existing Vita PCM mixer.
+3. Performance RecordLink validation:
+   - fixed CPerformanceMgr::GetOptionRecord bounds test;
+   - invalid type/group/option indices now return NULL instead of following a bogus record link. This is especially relevant to the Performance/Leistung advanced lists.
+4. Core menu registry audit:
+   - runtime checks all reachable SP/options screen objects and logs any missing screen.
+5. M29AQ retained:
+   - packed SKDB v2 StringDB decode remains active for original localized menu labels;
+   - menu navigation/build and weapon-database audit diagnostics remain active.
+
+Known separate scope
+- Multiplayer/networking is not implemented as part of this single-player frontend/menu completeness pass because the PC game uses a separate FEARMP executable and browser/network stack. It should not be conflated with broken links in the SP/options menu tree.
