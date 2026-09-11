@@ -1,0 +1,372 @@
+--- a/project/include/fearvita/controller_input.h
++++ b/project/include/fearvita/controller_input.h
+@@ -20,6 +20,12 @@
+   ControllerButton_Circle    = 1u << 9,
+   ControllerButton_Cross     = 1u << 10,
+   ControllerButton_Square    = 1u << 11,
++  // Virtual Vita touch buttons.  These are produced by the platform backend
++  // and enter the same edge/hold pipeline as physical controls.
++  ControllerButton_FrontLeft   = 1u << 12,
++  ControllerButton_FrontCenter = 1u << 13,
++  ControllerButton_FrontRight  = 1u << 14,
++  ControllerButton_RearSprint  = 1u << 15,
+ };
+ 
+ struct ControllerRawSample {
+--- a/project/include/fearvita/fear_input_map.h
++++ b/project/include/fearvita/fear_input_map.h
+@@ -31,8 +31,14 @@
+   FearCommand_Firing = 17,
+   FearCommand_AltFiring = 19,
+   FearCommand_Focus = 27,
++  FearCommand_ToggleMelee = 60,
++  FearCommand_ZoomIn = 71,
++  FearCommand_ZoomOut = 72,
++  FearCommand_NextGrenade = 73,
+   FearCommand_PrevWeapon = 76,
+   FearCommand_NextWeapon = 77,
++  FearCommand_Mission = 78,
++  FearCommand_Status = 79,
+   FearCommand_ThrowGrenade = 81,
+   FearCommand_Activate = 87,
+   FearCommand_Reload = 88,
+--- a/project/src/vita_controller_backend.cpp
++++ b/project/src/vita_controller_backend.cpp
+@@ -3,6 +3,8 @@
+ #if defined(__vita__) || defined(PLATFORM_VITA)
+ 
+ #include <psp2/ctrl.h>
++#include <psp2/kernel/processmgr.h>
++#include <psp2/touch.h>
+ 
+ namespace fearvita {
+ namespace {
+@@ -26,17 +28,20 @@
+ 
+ class VitaControllerBackend final : public IControllerBackend {
+  public:
+-  const char* Name() const override { return "vita-scectrl-m12"; }
++  const char* Name() const override { return "vita-scectrl-touch-m29av"; }
+ 
+   bool Initialize(std::string* error) override {
+     const int result = sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+-    if (result < 0) {
+-      // ANALOG_WIDE is preferable but not essential on older environments.
+-      if (sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG) < 0) {
+-        if (error) *error = "sceCtrlSetSamplingMode failed.";
+-        return false;
+-      }
++    if (result < 0 && sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG) < 0) {
++      if (error) *error = "sceCtrlSetSamplingMode failed.";
++      return false;
+     }
++    // Touch is additive.  A failure leaves the physical controls usable.
++    frontTouch_ = sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT,
++        SCE_TOUCH_SAMPLING_STATE_START) >= 0;
++    rearTouch_ = sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK,
++        SCE_TOUCH_SAMPLING_STATE_START) >= 0;
++    if (frontTouch_) sceTouchGetPanelInfo(SCE_TOUCH_PORT_FRONT, &frontInfo_);
+     initialized_ = true;
+     return true;
+   }
+@@ -57,13 +62,67 @@
+     sample->ly = pad.ly;
+     sample->rx = pad.rx;
+     sample->ry = pad.ry;
++
++    if (frontTouch_) {
++      SceTouchData touch{};
++      if (sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1) >= 0) {
++        int minX = frontInfo_.minAaX;
++        int maxX = frontInfo_.maxAaX;
++        if (maxX <= minX) { minX = 0; maxX = 1919; }
++        const int width = maxX - minX + 1;
++        const int leftEdge = minX + width / 3;
++        const int rightEdge = minX + (2 * width) / 3;
++        for (SceUInt32 i = 0; i < touch.reportNum; ++i) {
++          const int x = touch.report[i].x;
++          if (x < leftEdge) sample->buttons |= ControllerButton_FrontLeft;
++          else if (x >= rightEdge) sample->buttons |= ControllerButton_FrontRight;
++          else sample->buttons |= ControllerButton_FrontCenter;
++        }
++      }
++    }
++
++    if (rearTouch_) {
++      SceTouchData touch{};
++      const bool rearDown = sceTouchPeek(SCE_TOUCH_PORT_BACK, &touch, 1) >= 0 && touch.reportNum > 0;
++      const SceUInt64 now = sceKernelGetProcessTimeWide();
++      if (rearDown && !rearWasDown_) {
++        // Killzone-inspired gesture: double-tap the rear pad, then keep the
++        // second contact held to sprint.  This avoids accidental sprinting
++        // from simply resting fingers on the rear surface.
++        if (lastRearTapUs_ && (now - lastRearTapUs_) <= 350000u) {
++          rearSprintLatched_ = true;
++          lastRearTapUs_ = 0;
++        } else {
++          lastRearTapUs_ = now;
++          rearSprintLatched_ = false;
++        }
++      }
++      if (!rearDown && rearWasDown_ && rearSprintLatched_) rearSprintLatched_ = false;
++      rearWasDown_ = rearDown;
++      if (rearDown && rearSprintLatched_) sample->buttons |= ControllerButton_RearSprint;
++    }
+     return true;
+   }
+ 
+-  void Shutdown() override { initialized_ = false; }
++  void Shutdown() override {
++    if (frontTouch_) sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_STOP);
++    if (rearTouch_) sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_STOP);
++    initialized_ = false;
++    frontTouch_ = false;
++    rearTouch_ = false;
++    rearWasDown_ = false;
++    rearSprintLatched_ = false;
++    lastRearTapUs_ = 0;
++  }
+ 
+  private:
+   bool initialized_ = false;
++  bool frontTouch_ = false;
++  bool rearTouch_ = false;
++  bool rearWasDown_ = false;
++  bool rearSprintLatched_ = false;
++  SceUInt64 lastRearTapUs_ = 0;
++  SceTouchPanelInfo frontInfo_{};
+ };
+ 
+ }  // namespace
+--- a/project/src/fear_input_map.cpp
++++ b/project/src/fear_input_map.cpp
+@@ -22,14 +22,14 @@
+                                       const FearInputConfig& config) {
+   FearInputSnapshot out;
+   const float threshold = std::clamp(config.digital_move_threshold, 0.0f, 1.0f);
+-  const float run_threshold = std::clamp(config.run_threshold, threshold, 1.0f);
+-
+   SetCommand(&out, FearCommand_Forward, c.move_y > threshold);
+   SetCommand(&out, FearCommand_Reverse, c.move_y < -threshold);
+   SetCommand(&out, FearCommand_StrafeRight, c.move_x > threshold);
+   SetCommand(&out, FearCommand_StrafeLeft, c.move_x < -threshold);
+-  SetCommand(&out, FearCommand_Run,
+-             std::max(std::fabs(c.move_x), std::fabs(c.move_y)) >= run_threshold);
++  // Sprint is an explicit rear-touch gesture on Vita rather than an analog
++  // magnitude side effect.  That mirrors the handheld FPS control style and
++  // keeps precise walking possible on the small left stick.
++  SetCommand(&out, FearCommand_Run, c.Down(ControllerButton_RearSprint));
+ 
+   SetCommand(&out, FearCommand_Menu, c.Down(ControllerButton_Start));
+   SetCommand(&out, FearCommand_Jump, c.Down(ControllerButton_Cross));
+@@ -37,12 +37,15 @@
+   SetCommand(&out, FearCommand_Reload, c.Down(ControllerButton_Square));
+   SetCommand(&out, FearCommand_Activate, c.Down(ControllerButton_Triangle));
+   SetCommand(&out, FearCommand_Firing, c.Down(ControllerButton_R));
+-  SetCommand(&out, FearCommand_SlowMo, c.Down(ControllerButton_L));
+-  SetCommand(&out, FearCommand_NextWeapon, c.Down(ControllerButton_Up));
+-  SetCommand(&out, FearCommand_PrevWeapon, c.Down(ControllerButton_Down));
+-  SetCommand(&out, FearCommand_Flashlight, c.Down(ControllerButton_Left));
+-  SetCommand(&out, FearCommand_ThrowGrenade, c.Down(ControllerButton_Right));
+-  SetCommand(&out, FearCommand_Focus, c.Down(ControllerButton_Select));
++  SetCommand(&out, FearCommand_ManualAim, c.Down(ControllerButton_L));
++  SetCommand(&out, FearCommand_SlowMo, c.Down(ControllerButton_Up));
++  SetCommand(&out, FearCommand_NextWeapon,
++             c.Down(ControllerButton_Right) || c.Down(ControllerButton_FrontRight));
++  SetCommand(&out, FearCommand_PrevWeapon, c.Down(ControllerButton_Left));
++  SetCommand(&out, FearCommand_ThrowGrenade, c.Down(ControllerButton_Down));
++  SetCommand(&out, FearCommand_Flashlight, c.Down(ControllerButton_FrontLeft));
++  SetCommand(&out, FearCommand_ToggleMelee, c.Down(ControllerButton_FrontCenter));
++  SetCommand(&out, FearCommand_Mission, c.Down(ControllerButton_Select));
+ 
+   out.axes[0] = std::clamp(c.look_x * config.look_scale, -1.0f, 1.0f);
+   out.axes[1] = std::clamp(c.look_y * config.look_scale, -1.0f, 1.0f);
+--- a/project/src/system_language.cpp
++++ b/project/src/system_language.cpp
+@@ -166,6 +166,16 @@
+   {"Screen_Options_SlowMoFX_Help", L"Adjust slow-motion visual effects.", L"Visuelle Zeitlupeneffekte anpassen.", L"Régler les effets visuels de ralenti.", L"Regola gli effetti visivi rallentati.", L"Ajustar efectos visuales de cámara lenta.", L"スローモーションの画面効果を調整します。"},
+   {"IDS_HELP_CROSSHAIRMENU", L"Configure the crosshair.", L"Fadenkreuz konfigurieren.", L"Configurer le réticule.", L"Configura mirino.", L"Configurar la mira.", L"照準を設定します。"},
+ 
++  // Loading-screen and input fallbacks.  Mission-specific briefing/help text
++  // continues to come from the retail StringDB; these cover the framework text
++  // that otherwise remained English when the Vita language overlay was German.
++  {"LoadScreen_Briefing", L"Briefing", L"Einsatzbesprechung", L"Briefing", L"Briefing", L"Informe", L"ブリーフィング"},
++  {"LoadScreen_ServerMessage", L"Server Message", L"Servermeldung", L"Message serveur", L"Messaggio server", L"Mensaje del servidor", L"サーバーメッセージ"},
++  {"Screen_LoadAborted", L"Loading aborted.", L"Ladevorgang abgebrochen.", L"Chargement interrompu.", L"Caricamento interrotto.", L"Carga cancelada.", L"ロードが中止されました。"},
++  {"Control_Unassigned", L"Unassigned", L"Nicht belegt", L"Non assigne", L"Non assegnato", L"Sin asignar", L"未割り当て"},
++  {"IDS_CONTROL_UNASSIGNED", L"Unassigned", L"Nicht belegt", L"Non assigne", L"Non assegnato", L"Sin asignar", L"未割り当て"},
++  {"IDS_CONNECTING_TO_SERVER", L"Connecting to server", L"Verbindung zum Server", L"Connexion au serveur", L"Connessione al server", L"Conectando al servidor", L"サーバーに接続中"},
++
+   {"IDS_TITLE_WEAPONS", L"Weapons", L"Waffen", L"Armes", L"Armi", L"Armas", L"武器"},
+   {"ScreenWeapons_MoveUp", L"Move Up", L"Nach oben", L"Monter", L"Sposta su", L"Subir", L"上へ"},
+   {"ScreenWeapons_MoveDown", L"Move Down", L"Nach unten", L"Descendre", L"Sposta giù", L"Bajar", L"下へ"},
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -531,7 +531,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AU; preload state-machine enabled + ingame loading handoff");
++      "FEARVita 0.02 / M29AV; localized loading UI + Killzone-style Vita controls + server compile bring-up");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -563,6 +563,8 @@
+   }
+   fearvita::SetActiveControllerInput(&controller);
+   fearvita::RuntimeDiagnostic("startup", "renderer and controller ready");
++  fearvita::RuntimeDiagnostic("vita-controls",
++      "killzone-style: L=aim R=fire X=jump O=crouch Square=reload Triangle=use; dpad U=slowmo D=grenade L/R=weapon; front=L flashlight/C melee/R next; rear double-tap+hold=sprint");
+ 
+   // M29AL: skip the separate startup splash and enter the game selector immediately.
+ 
+@@ -612,7 +614,7 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AU; preload state-machine enabled + ingame loading handoff");
++      "FEARVita 0.02 / M29AV; localized loading UI + Killzone-style Vita controls + server compile bring-up");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   FearVita_BinkSetCampaignTag(campaign_tag);
+--- a/lithtech-work/FEAR/ClientShellDLL/ProfileMgr.cpp
++++ b/lithtech-work/FEAR/ClientShellDLL/ProfileMgr.cpp
+@@ -33,6 +33,9 @@
+ #include "GameModeMgr.h"
+ #include "ClientDB.h"
+ #include "ltprofileutils.h"
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/system_language.h"
++#endif
+ #include "iltfilemgr.h"
+ #include "ltoutnullconverter.h"
+ #include "HostOptionsMapMgr.h"
+@@ -1318,6 +1321,32 @@
+ 	m_bInitted = false;
+ }
+ 
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++static const wchar_t* FearVitaCommandDisplayName(int nCommand)
++{
++	const bool bGerman = (0 == LTStrICmp(fearvita::GetSystemLanguageId(), "de"));
++	switch (nCommand)
++	{
++		case COMMAND_ID_MENU: return L"START";
++		case COMMAND_ID_JUMP: return L"X";
++		case COMMAND_ID_DUCK: return bGerman ? L"Kreis" : L"Circle";
++		case COMMAND_ID_RELOAD: return bGerman ? L"Quadrat" : L"Square";
++		case COMMAND_ID_ACTIVATE: return bGerman ? L"Dreieck" : L"Triangle";
++		case COMMAND_ID_FIRING: return L"R";
++		case COMMAND_ID_MANUALAIM: return L"L";
++		case COMMAND_ID_RUN: return bGerman ? L"Touchpad hinten: doppeltippen + halten" : L"Rear touch: double-tap + hold";
++		case COMMAND_ID_PREV_WEAPON: return bGerman ? L"Steuerkreuz links" : L"D-pad left";
++		case COMMAND_ID_NEXT_WEAPON: return bGerman ? L"Steuerkreuz rechts / Touch rechts" : L"D-pad right / front touch right";
++		case COMMAND_ID_THROW_GRENADE: return bGerman ? L"Steuerkreuz unten" : L"D-pad down";
++		case COMMAND_ID_SLOWMO: return bGerman ? L"Steuerkreuz oben" : L"D-pad up";
++		case COMMAND_ID_FLASHLIGHT: return bGerman ? L"Touchscreen links" : L"Front touch left";
++		case COMMAND_ID_TOGGLEMELEE: return bGerman ? L"Touchscreen Mitte" : L"Front touch center";
++		case COMMAND_ID_MISSION: return L"SELECT";
++		default: return L"";
++	}
++}
++#endif
++
+ const wchar_t* CUserProfile::GetTriggerNameFromCommandID(int nCommand)
+ {
+ 	SetBindings();
+@@ -1330,7 +1359,14 @@
+ 	strControls[0] = NULL;
+ 
+ 	if (s_aBindings.empty())
++	{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		const wchar_t* pszVita = FearVitaCommandDisplayName(nCommand);
++		if (!LTStrEmpty(pszVita))
++			LTStrCpy(strControls, pszVita, LTARRAYSIZE(strControls));
++#endif
+ 		return strControls;
++	}
+ 
+ 	// Temporary implementation that uses just the first binding
+ 	ILTInput::SDeviceObjectDesc sObjDesc;
+--- a/lithtech-work/FEAR/ClientShellDLL/ScreenConfigure.cpp
++++ b/lithtech-work/FEAR/ClientShellDLL/ScreenConfigure.cpp
+@@ -359,6 +359,15 @@
+ 	// Set the text to "unassigned" if no bindings are set
+ 	if (aBindings.empty())
+ 	{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		CUserProfile* pProfile = g_pProfileMgr ? g_pProfileMgr->GetCurrentProfile() : NULL;
++		const wchar_t* pszVita = pProfile ? pProfile->GetTriggerNameFromCommandID(GetCommandData(nCommand)->m_nCommandID) : L"";
++		if (!LTStrEmpty(pszVita))
++		{
++			pCol->SetString(SCREEN_COLUMN_KEY, pszVita);
++			return;
++		}
++#endif
+ 		pCol->SetString(SCREEN_COLUMN_KEY, LoadString("IDS_CONTROL_UNASSIGNED"));
+ 		return;
+ 	}
+--- a/lithtech-work/FEAR/ClientShellDLL/LoadingScreen.cpp
++++ b/lithtech-work/FEAR/ClientShellDLL/LoadingScreen.cpp
+@@ -26,6 +26,9 @@
+ #include "iltloadingprogress.h"
+ #include "time.h"
+ #include "ltfileoperations.h"
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/runtime_diagnostics.h"
++#endif
+ 
+ extern CGameClientShell* g_pGameClientShell;
+ 
+@@ -867,6 +870,15 @@
+ 
+ 	// Show help text for this level if it exists.
+ 	const char* szHelpId = g_pMissionDB->GetString(hLevel,MDB_Help);
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	const char* szNameId = g_pMissionDB->GetString(hLevel,MDB_Name);
++	const char* szBriefId = g_pMissionDB->GetString(hLevel,MDB_Briefing);
++	fearvita::RuntimeDiagnostic("loading-localize",
++		std::string("world=") + g_pMissionMgr->GetCurrentWorldName() +
++		" level-id=" + (szNameId ? szNameId : "<null>") +
++		" briefing-id=" + (szBriefId ? szBriefId : "<null>") +
++		" help-id=" + (szHelpId ? szHelpId : "<null>"));
++#endif
+ 	if( szHelpId[0] != '\0' )
+ 	{
+ 		m_Help.SetString(CreateHelpString( szHelpId ));
+--- a/lithtech-work/FEAR/ObjectDLL/Stdafx.h
++++ b/lithtech-work/FEAR/ObjectDLL/Stdafx.h
+@@ -27,6 +27,32 @@
+ 
+ #include "engine.h"
+ 
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++// FEAR's private ObjectDLL headers allow an optional editor-description tail
++// on property macros.  The public Jupiter EX SDK exposes the same PropDef data
++// with older fixed-arity macros.  Drop only the editor help text on Vita.
++#undef ADD_REALPROP_FLAG
++#undef ADD_STRINGPROP_FLAG
++#undef ADD_VECTORPROP_FLAG
++#undef ADD_VECTORPROP_VAL_FLAG
++#undef ADD_LONGINTPROP_FLAG
++#undef ADD_ROTATIONPROP_FLAG
++#undef ADD_BOOLPROP_FLAG
++#undef ADD_COLORPROP_FLAG
++#undef ADD_OBJECTPROP_FLAG
++#undef PROP_DEFINEGROUP
++#define ADD_REALPROP_FLAG(name, val, flags, ...) PropDef(#name, PT_REAL, NOCOLOR, val, "", flags),
++#define ADD_STRINGPROP_FLAG(name, val, flags, ...) PropDef(#name, PT_STRING, NOCOLOR, 0.0f, val, flags),
++#define ADD_VECTORPROP_FLAG(name, flags, ...) PropDef(#name, PT_VECTOR, NOCOLOR, 0.0f, (char*)0, flags),
++#define ADD_VECTORPROP_VAL_FLAG(name, x, y, z, flags, ...) PropDef(#name, PT_VECTOR, LTVector(x,y,z), 0.0f, (char*)0, flags),
++#define ADD_LONGINTPROP_FLAG(name, val, flags, ...) PropDef(#name, PT_LONGINT, NOCOLOR, (float)val, (char*)0, flags),
++#define ADD_ROTATIONPROP_FLAG(name, flags, ...) PropDef(#name, PT_ROTATION, NOCOLOR, 0.0f, (char*)0, flags),
++#define ADD_BOOLPROP_FLAG(name, val, flags, ...) PropDef(#name, PT_BOOL, NOCOLOR, (float)val, (char*)0, flags),
++#define ADD_COLORPROP_FLAG(name, r, g, b, flags, ...) PropDef(#name, PT_COLOR, LTVector(r,g,b), 0.0f, (char*)0, flags),
++#define ADD_OBJECTPROP_FLAG(name, val, flags, ...) PropDef(#name, PT_STRING, NOCOLOR, 0.0f, val, flags | PF_OBJECTLINK),
++#define PROP_DEFINEGROUP(groupName, groupFlag, ...) PropDef(#groupName, PT_LONGINT, NOCOLOR, (float)0.0f, (char*)0, groupFlag|PF_GROUPOWNER),
++#endif
++
+ #include <stdio.h>
+ #include <limits.h>
+ #include <float.h>
