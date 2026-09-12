@@ -57,6 +57,7 @@ jobs:
           python3 ../ci/keeperfx-vita/patch_v6_compilefix.py
           sed -i 's/loader_draw_progress(unsigned long done, unsigned long total)/loader_draw_progress(unsigned long done, unsigned long total, const char *status)/g' ../ci/keeperfx-vita/patch_v7_runtime.py
           python3 ../ci/keeperfx-vita/patch_v7_runtime.py
+          python3 ../ci/keeperfx-vita/patch_v7_compilefix.py
 
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
