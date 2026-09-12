@@ -1,0 +1,24 @@
+FEARVita M29BA — CURRENT STATE — 2026-09-12
+
+HARDWARE FINDING
+- M29AZ no longer dies at MissionDB/strcasecmp; all campaigns advance much farther.
+- FEAR/EP retest cores normalize to 0x81590790 in FearVitaLegacyCheapLTLink::AddAfter.
+- Reconstructed call chain: CInterfaceMgr::Init -> CClientFXMgr::SetCamera -> LTObjRef assignment/link -> CLTServer::LinkObjRef -> legacy AddAfter.
+- PM reaches later frontend/media setup and crashes in _malloc_r from operator new / CVitaSoundMgr::PlaySound; likely corruption is possible, but audio is not asserted as root cause.
+
+M29BA FIX
+- Do not reinterpret the complete polymorphic LTObjRef object as a legacy two-pointer link.
+- Convert LTObjRef* to its actual LTLink<HOBJECT>* base subobject first, then bridge that address to the old runtime link layout.
+- Reverse the base-subobject adjustment before LTObjRef deletion callbacks.
+- ARM generated code confirms +4 forward and -4 reverse pointer adjustment.
+
+ARTIFACTS
+- ELF: 27ff2a108c04e1e01d92c100768ef1d66f4501ac94266816a4b40100045c8b59
+- VELF: 7b41b6cb478b8a9d667e32bde1057a9b131c66b62257969a172e056ee8398499
+- eboot.bin: 8f8cd8c62b92711913e678bd71df64357e81987bfc1f4a16f706a6f7c5f82316
+- VPK: 47fa72f0f5166f3ccf9298607b9c1fee02cec3d24ec7997b63675e59e6a217e0
+- VPK has 22 files; embedded eboot is byte-identical; 10 private assets are byte-identical to M29AX.
+
+VALIDATION
+- M29BA is NOT hardware validated yet.
+- No GS_PLAYING fabrication or fake world transition.
