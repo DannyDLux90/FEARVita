@@ -23,14 +23,13 @@ static const char *kBundlePath = "app0:/game_data/keeperfx_data_bundle.zip";
 static const char *kMarkerPath = "ux0:data/keeperfx/.keeperfx_vita_data_v3";
 static const char *kLogPath = "ux0:data/keeperfx/vita_install.log";
 
-// A tiny direct-framebuffer loader is used before SDL/vitaGL are initialized.
-// This makes the one-time ~500 MB data extraction visible instead of leaving
-// the user on a black screen for the duration of the install.
+// Minimal pre-SDL framebuffer used only while the bundled data is installed.
 static const int kLoaderWidth = 960;
 static const int kLoaderHeight = 544;
-static const int kLoaderPitch = 1024;
+static const int kLoaderPitch = 960;
 static SceUID g_loader_memblock = -1;
 static uint32_t *g_loader_pixels = NULL;
+static bool g_loader_background_drawn = false;
 
 static void log_line(const char *msg)
 {
@@ -97,18 +96,21 @@ static void loader_draw_progress(unsigned long done, unsigned long total)
     const int inner_h = bar_h - 8;
     const int filled = (int)(((unsigned long long)inner_w * done) / total);
 
-    // Dark dungeon-like background with a simple gold frame and light progress.
-    loader_fill_rect(0, 0, kLoaderWidth, kLoaderHeight, 0xFF090909u);
-    loader_fill_rect(86, 192, 788, 164, 0xFF171717u);
+    if (!g_loader_background_drawn) {
+        // Deliberately non-black even at 0% so the user can distinguish an
+        // active first-run installer from a hung/blank startup.
+        loader_fill_rect(0, 0, kLoaderWidth, kLoaderHeight, 0xFF090909u);
+        loader_fill_rect(86, 192, 788, 164, 0xFF171717u);
+        loader_fill_rect(110, 226, 250, 6, 0xFFB0A060u);
+        loader_fill_rect(600, 226, 250, 6, 0xFFB0A060u);
+        loader_fill_rect(448, 218, 64, 22, 0xFFE0D0A0u);
+        g_loader_background_drawn = true;
+    }
+
     loader_fill_rect(bar_x, bar_y, bar_w, bar_h, 0xFFB0A060u);
     loader_fill_rect(inner_x, inner_y, inner_w, inner_h, 0xFF282828u);
     if (filled > 0)
         loader_fill_rect(inner_x, inner_y, filled, inner_h, 0xFFE0D0A0u);
-
-    // Small status ornaments so a 0% screen is visibly intentional, not black.
-    loader_fill_rect(110, 226, 250, 6, 0xFFB0A060u);
-    loader_fill_rect(600, 226, 250, 6, 0xFFB0A060u);
-    loader_fill_rect(448, 218, 64, 22, 0xFFE0D0A0u);
 
     sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);
 }
@@ -118,11 +120,14 @@ static bool loader_init()
     if (g_loader_pixels)
         return true;
 
-    const unsigned int bytes = (unsigned int)(kLoaderPitch * kLoaderHeight * 4);
+    const unsigned int raw_bytes = (unsigned int)(kLoaderPitch * kLoaderHeight * 4);
+    const unsigned int cdram_align = 256u * 1024u;
+    const unsigned int alloc_bytes = (raw_bytes + cdram_align - 1u) & ~(cdram_align - 1u);
+
     g_loader_memblock = sceKernelAllocMemBlock(
         "KeeperFX data loader",
         SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
-        bytes,
+        alloc_bytes,
         NULL);
     if (g_loader_memblock < 0) {
         log_printf("loader framebuffer allocation failed: 0x%08X", (unsigned int)g_loader_memblock);
@@ -139,7 +144,7 @@ static bool loader_init()
         return false;
     }
     g_loader_pixels = (uint32_t *)base;
-    memset(g_loader_pixels, 0, bytes);
+    memset(g_loader_pixels, 0, raw_bytes);
 
     SceDisplayFrameBuf frame;
     memset(&frame, 0, sizeof(frame));
@@ -153,13 +158,12 @@ static bool loader_init()
     int display_rc = sceDisplaySetFrameBuf(&frame, SCE_DISPLAY_SETBUF_NEXTFRAME);
     if (display_rc < 0) {
         log_printf("loader sceDisplaySetFrameBuf failed: 0x%08X", (unsigned int)display_rc);
-        // Keep the allocation alive; the installer can still continue and log.
         return false;
     }
 
     loader_draw_progress(0, 1);
     sceDisplayWaitVblankStart();
-    log_line("loader framebuffer active");
+    log_printf("loader framebuffer active: raw=%u alloc=%u", raw_bytes, alloc_bytes);
     return true;
 }
 
@@ -251,8 +255,6 @@ static bool deeper_requested()
     if (sceAppUtilReceiveAppEvent(&event_param) < 0)
         return false;
 
-    // VitaSDK does not publish a symbolic LIVEAREA event type in apputil.h.
-    // Parse the received event directly; non-LiveArea events simply fail here.
     char buffer[2048];
     memset(buffer, 0, sizeof(buffer));
     if (sceAppUtilAppEventParseLiveArea(&event_param, buffer) < 0)
@@ -281,8 +283,8 @@ static bool install_bundled_data()
         fclose(log);
     }
 
-    // Present a visible loader before touching the large archive. Failure to
-    // create the loader is non-fatal; the detailed file log remains available.
+    // The progress display is best-effort. Installation still proceeds and
+    // logs details if display allocation itself is unavailable.
     loader_init();
     loader_draw_progress(0, 100);
     log_line("opening bundled data archive");
