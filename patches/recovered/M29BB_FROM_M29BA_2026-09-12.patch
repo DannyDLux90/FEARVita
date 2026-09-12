@@ -1,0 +1,142 @@
+--- a/m29ay_src/project/src/main.cpp
++++ b/m29ay_src/project/src/main.cpp
+@@ -531,7 +531,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29BA; LTObjRef legacy-link ABI fix + ObjectDLL runtime");
++      "FEARVita 0.02 / M29BB; LTObjRef client/server ownership dispatch + ObjectDLL runtime");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -636,7 +636,7 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29BA; LTObjRef legacy-link ABI fix + ObjectDLL runtime");
++      "FEARVita 0.02 / M29BB; LTObjRef client/server ownership dispatch + ObjectDLL runtime");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   FearVita_BinkSetCampaignTag(campaign_tag);
+--- a/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp
++++ b/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp
+@@ -641,7 +641,18 @@
+     // Accept valid local handles so wrappers such as CPlayerCamera::m_hCamera
+     // retain the object returned by CreateObject().
+     if (!hObj || !pRef) return LT_INVALIDPARAMS;
+-    return AsLocal(reinterpret_cast<HLOCALOBJ>(hObj)) ? LT_OK : LT_NOTFOUND;
++    VitaLocalObject* pLocal = AsLocal(reinterpret_cast<HLOCALOBJ>(hObj));
++    if (!pLocal) return LT_NOTFOUND;
++#if defined(PLATFORM_VITA)
++    static unsigned s_nObjRefLocalLinks = 0;
++    if (s_nObjRefLocalLinks < 8) {
++      fearvita::RuntimeDiagnostic("objref",
++          std::string("client-local-link accepted type=") + std::to_string(pLocal->type) +
++          " count=" + std::to_string(s_nObjRefLocalLinks));
++    }
++    ++s_nObjRefLocalLinks;
++#endif
++    return LT_OK;
+   }
+ 
+   ILTVideoMgr* VideoMgr() override { return nullptr; }
+--- a/m29ay_src/lithtech-overlay/sdk/inc/ltobjref.cpp
++++ b/m29ay_src/lithtech-overlay/sdk/inc/ltobjref.cpp
+@@ -20,6 +20,39 @@
+ 
+ void LTObjRef::Link(HOBJECT hObj)
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	// FEARVita links the client shell and local server into one executable, so
++	// both ILTClient and ILTServer holders can be populated at the same time.
++	// The original module-separated code preferred ILTServer whenever present,
++	// which is unsafe here: frontend objects created by the Vita ILTClient are
++	// opaque VitaLocalObject handles, not runtime LTObject instances.  First let
++	// the client interface claim client-owned handles; only fall back to the
++	// server interface when the client reports that the handle is not one of its
++	// objects.  This preserves real server LTObject reference-list tracking while
++	// preventing client-local cameras/effects from being reinterpreted as
++	// LTObject and passed to CLTServer::LinkObjRef.
++	if (hObj)
++	{
++		if (g_pLTObjRef_InterfaceC &&
++			((ILTCSBase *)g_pLTObjRef_InterfaceC)->LinkObjRef(hObj, this) == LT_OK)
++		{
++			SetData(hObj);
++			return;
++		}
++
++		if (g_pLTObjRef_InterfaceS &&
++			((ILTCSBase *)g_pLTObjRef_InterfaceS)->LinkObjRef(hObj, this) == LT_OK)
++		{
++			SetData(hObj);
++			return;
++		}
++
++		SetData(NULL);
++		return;
++	}
++
++	SetData(NULL);
++#else
+ 	ILTCSBase *pInterface = g_pLTObjRef_InterfaceS ? (ILTCSBase *)g_pLTObjRef_InterfaceS : (ILTCSBase *)g_pLTObjRef_InterfaceC;
+ 	if (!pInterface)
+ 	{
+@@ -37,6 +70,7 @@
+ 	}
+ 
+ 	SetData(hObj);
++#endif
+ }
+ 
+ void LTObjRef::Unlink()
+--- a/m29ay_lithtech/lithtech-master/sdk/inc/ltobjref.cpp
++++ b/m29ay_lithtech/lithtech-master/sdk/inc/ltobjref.cpp
+@@ -20,6 +20,39 @@
+ 
+ void LTObjRef::Link(HOBJECT hObj)
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	// FEARVita links the client shell and local server into one executable, so
++	// both ILTClient and ILTServer holders can be populated at the same time.
++	// The original module-separated code preferred ILTServer whenever present,
++	// which is unsafe here: frontend objects created by the Vita ILTClient are
++	// opaque VitaLocalObject handles, not runtime LTObject instances.  First let
++	// the client interface claim client-owned handles; only fall back to the
++	// server interface when the client reports that the handle is not one of its
++	// objects.  This preserves real server LTObject reference-list tracking while
++	// preventing client-local cameras/effects from being reinterpreted as
++	// LTObject and passed to CLTServer::LinkObjRef.
++	if (hObj)
++	{
++		if (g_pLTObjRef_InterfaceC &&
++			((ILTCSBase *)g_pLTObjRef_InterfaceC)->LinkObjRef(hObj, this) == LT_OK)
++		{
++			SetData(hObj);
++			return;
++		}
++
++		if (g_pLTObjRef_InterfaceS &&
++			((ILTCSBase *)g_pLTObjRef_InterfaceS)->LinkObjRef(hObj, this) == LT_OK)
++		{
++			SetData(hObj);
++			return;
++		}
++
++		SetData(NULL);
++		return;
++	}
++
++	SetData(NULL);
++#else
+ 	ILTCSBase *pInterface = g_pLTObjRef_InterfaceS ? (ILTCSBase *)g_pLTObjRef_InterfaceS : (ILTCSBase *)g_pLTObjRef_InterfaceC;
+ 	if (!pInterface)
+ 	{
+@@ -37,6 +70,7 @@
+ 	}
+ 
+ 	SetData(hObj);
++#endif
+ }
+ 
+ void LTObjRef::Unlink()
