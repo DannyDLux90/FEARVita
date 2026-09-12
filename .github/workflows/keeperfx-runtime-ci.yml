@@ -1,0 +1,112 @@
+name: KeeperFX Vita Runtime Bundle
+
+on:
+  push:
+    branches: [ "keeperfx-vita-ci" ]
+    paths:
+      - ".github/workflows/keeperfx-runtime-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  runtime:
+    name: Prepare KeeperFX 1.3.2 runtime
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@v4
+
+      - name: Download official KeeperFX 1.3.2 complete package
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 5 --retry-delay 2 \
+            https://github.com/dkfans/keeperfx/releases/download/v1.3.2/keeperfx_1_3_2_complete.7z \
+            -o /tmp/keeperfx132.7z
+          echo "2a8b0dcce85b954c5328f4c6cc8dc7f6ecf6243a4df04a7145fdc48c9aa45b8a  /tmp/keeperfx132.7z" | sha256sum -c -
+
+      - name: Extract Vita runtime files
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/kfx-full /tmp/kfx-runtime
+          mkdir -p /tmp/kfx-full /tmp/kfx-runtime
+          7z x -y /tmp/keeperfx132.7z -o/tmp/kfx-full >/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          full = Path('/tmp/kfx-full')
+          candidates = [p.parent for p in full.rglob('keeperfx.cfg')]
+          if not candidates:
+              raise SystemExit('keeperfx.cfg not found in official archive')
+          root = min(candidates, key=lambda p: len(p.parts))
+          out = Path('/tmp/kfx-runtime')
+          wanted_dirs = [
+              'data', 'fxdata', 'hdata', 'campgns', 'config', 'lang', 'levels',
+              'ldata', 'creatrs', 'mods', 'multiplayer'
+          ]
+          found = []
+          for name in wanted_dirs:
+              src = root / name
+              if src.is_dir():
+                  shutil.copytree(src, out / name, dirs_exist_ok=True)
+                  found.append(name)
+          shutil.copy2(root / 'keeperfx.cfg', out / 'keeperfx.cfg')
+          print('Archive root:', root)
+          print('Runtime dirs:', ', '.join(found))
+          if not all((out / d).is_dir() for d in ('data','fxdata','campgns','lang','levels')):
+              raise SystemExit('official runtime missing required core directories')
+          PY
+
+      - name: Apply Vita minimum configuration
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/kfx-runtime/keeperfx.cfg')
+          text = p.read_text(encoding='utf-8', errors='replace')
+          lines = text.splitlines()
+          out = []
+          replaced_install = False
+          for line in lines:
+              stripped = line.strip()
+              if stripped.upper().startswith('INSTALL_PATH'):
+                  if not replaced_install:
+                      out.append('INSTALL_PATH .')
+                      replaced_install = True
+                  continue
+              out.append(line)
+          if not replaced_install:
+              out.insert(0, 'INSTALL_PATH .')
+          p.write_text('\n'.join(out) + '\n', encoding='utf-8')
+          PY
+
+      - name: Create stored runtime ZIP and manifest
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile, hashlib, json
+
+          root = Path('/tmp/kfx-runtime')
+          out = Path('keeperfx-runtime-1.3.2-vita.zip')
+          manifest = []
+          with zipfile.ZipFile(out, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+              for p in sorted(root.rglob('*')):
+                  if p.is_file():
+                      rel = p.relative_to(root).as_posix()
+                      zf.write(p, rel, compress_type=zipfile.ZIP_STORED)
+                      manifest.append({
+                          'path': rel,
+                          'size': p.stat().st_size,
+                          'sha256': hashlib.sha256(p.read_bytes()).hexdigest(),
+                      })
+          Path('keeperfx-runtime-1.3.2-vita-manifest.json').write_text(
+              json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          print('files', len(manifest), 'zip_bytes', out.stat().st_size)
+          PY
+
+      - name: Upload runtime bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: keeperfx-runtime-1.3.2-vita
+          path: |
+            keeperfx-runtime-1.3.2-vita.zip
+            keeperfx-runtime-1.3.2-vita-manifest.json
+          if-no-files-found: error
