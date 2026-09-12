@@ -1,0 +1,2 @@
+KeeperFX Vita loader progress rebuild v5
+Helper commit: da88bee98ddabc162cd36e749f67586652e38490
