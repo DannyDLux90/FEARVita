@@ -11,11 +11,15 @@ if old not in s:
     raise SystemExit('v7 compilefix: reference-background block not found')
 s = s.replace(old, new, 1)
 
-# The v6 compatibility layer leaves a status pointer in the generated header.
-# v7 uses the exact status lettering baked into the reference artwork, so retain
-# the ABI but explicitly mark the legacy status storage as intentionally unused.
-s = s.replace('static const char *g_loader_status =',
-              'static const char * __attribute__((unused)) g_loader_status =', 1)
+# v7 uses the status lettering baked into the supplied reference image. Remove
+# the legacy v6 status storage entirely so -Werror cannot flag it as unused.
+s = s.replace('static const char *g_loader_status = "SPIELDATEN WERDEN VORBEREITET";\n\n', '', 1)
+s = s.replace('static const char * __attribute__((unused)) g_loader_status = "SPIELDATEN WERDEN VORBEREITET";\n\n', '', 1)
+
+# Force one v7 validation pass so the user can actually see the corrected loader.
+# Existing files with matching sizes are skipped, so this is mainly verification.
+for old_marker in ('.keeperfx_vita_data_v3', '.keeperfx_vita_data_v5', '.keeperfx_vita_data_v6'):
+    s = s.replace(old_marker, '.keeperfx_vita_data_v7')
 
 p.write_text(s, encoding='utf-8')
 print('v7 compile compatibility fix applied')
