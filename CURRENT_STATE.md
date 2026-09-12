@@ -1,15 +1,17 @@
 # FEARVita current state
 
-**Public package version:** 0.07  
-**Internal checkpoint:** M29BJ  
+**Public package version:** 0.08  
+**Internal checkpoint:** M29BK  
 **Date:** 2026-09-12
 
-M29BJ advances the real F.E.A.R. Intro local-world path. Hardware-tested M29BI parsed all 347 Jupiter EX v113 BSPs, detected 93 BlindData chunks, entered the 1,988-object server section, reached at least object 1151, and drove the genuine retail loading bar to 70% before the next deterministic crash.
+M29BJ hardware testing advanced the real F.E.A.R. Intro load to the genuine retail loading bar at 80%. The Jupiter EX v113 path completes all 347 BSPs, sees 93 BlindData chunks, begins the 1,988-object server list and logs object milestones through at least index 1663 before the old diagnostic cap is exhausted.
 
-The M29BI core dump resolved that crash to `CSoundSet::GetRandomFile()`: Vita was excluded from the Win32/Linux database-backed sound-file selection implementation, leaving a non-void platform fall-through that compiled to `UDF #255`. M29BJ enables the same implementation for `PLATFORM_VITA` in both `GetRandomFile()` and `GetRandomNotDirtyFile()`.
+The M29BJ PSP2 core maps the new deterministic crash to `CAINavMesh::RuntimeSetup()` during `CGameServerShell::PostStartWorld`. The packed NavMesh is Win32/MSVC data with 4-byte unscoped enums; Vita GCC had compiled the same enum-bearing structures with short enums. In particular, `CAINavMeshEdge` was 64 bytes on Vita instead of the 72-byte retail layout, shifting the raw packed parser by thousands of bytes.
 
-The temporary white GT4 loading-bar fallback has been removed. The working retail cyan `m_LoadProgress` bar is now the only loading bar. The M29BI textured-background DrawPrim-state fix remains.
+M29BK rebuilds the F.E.A.R./LithTech Vita game-runtime boundary with `-fno-short-enums` and compile-time layout assertions for the critical NavMesh structures. `RuntimeSetup` now also receives the real BlindObject buffer length and preflights each packed section with explicit overflow/bounds checks before the legacy pointer fix-up path runs. A future mismatch reports `[navmesh-layout] preflight-fail ...` instead of data-aborting; a matching layout reports `[navmesh-layout] preflight-ok ... enum=4 edge=72`.
 
-M29BJ also addresses the repeated `MODEL00P ... Invalid Header` messages without bypassing validation: the old model loader accepted only `.ltb` filenames and rejected F.E.A.R.'s `.Model00p` extension before reading its LTB header. `.Model00p` now enters the same existing header/version path as `.ltb`, so the next hardware run either loads those models or reveals the next genuine model-format incompatibility.
+The stale NavMesh edge-list count reset is corrected. Repetitive `FindObjectsCB` overflow logging is suppressed after the first few messages and the Vita diagnostic ceiling is raised from 512 KiB to 2 MiB. Only the cyan retail loading bar remains. Audio is unchanged for test isolation.
 
-For continuation, use GitHub branch **`m29bj-soundset-single-loading-bar`** and read `CURRENT_STATE_M29BJ.txt`, `M29BJ_PROGRESS_2026-09-12.md`, and `recovery/M29BJ_RECOVERY.md`.
+The separate F.E.A.R. `Model00p` compatibility frontier remains: M29BJ proved these files use the `MODL!` container and are not legacy LTB model files, so a dedicated Jupiter EX model-loader path is still required after the world-start path is stable.
+
+For continuation, use GitHub branch **`m29bk-navmesh-abi`** and read `CURRENT_STATE_M29BK.txt`, `M29BK_PROGRESS_2026-09-12.md`, and `recovery/M29BK_RECOVERY.md`.
