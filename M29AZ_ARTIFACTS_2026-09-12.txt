@@ -1,0 +1,32 @@
+FEARVita M29AZ artifact manifest — 2026-09-12
+
+Hardware-crash-fix test VPK (standalone; not stored on GitHub):
+FEARVita_M29AZ_0.02_MISSIONDB_STRCASECMP_FIX_2026-09-12.vpk
+size=21925551
+sha256=63d346f36fc3f24f2c5fff7e8156a59ee66b3d3e1f4865aa0ec6fee9a3aec6cd
+files=22
+TITLE_ID=FEAR00001
+APP_VER=00.02
+
+ELF sha256=50496c07cd84ff09cf6f9b7006bb2dd4fd094831a07ccb35c91398c834555d6d
+VELF sha256=f60d5de9b45bc52f7d1eee5b2634e20a782e0bf9c0e80f5042ee324386bdfb23
+eboot.bin sha256=151a25c5ec1d13cd5c563d811aa1e0cc6d1076f154ca801578b229229920b85c
+
+Current source backup:
+FEARVita_M29AZ_SOURCE_MISSIONDB_FIX_2026-09-12.zip
+size=46274797
+sha256=498a03a74ce31ba33c2c6b9865b6130d27dae3eac108e69825607cebde47f4be
+ZIP integrity=PASS
+VPK/private assets embedded=NO
+
+Current workspace backup:
+FEARVita_M29AZ_WORKSPACE_MISSIONDB_FIX_2026-09-12.zip
+size=117365738
+sha256=9b79bec8e532330ceb32217acb53deb05fea528b4178128a17a6b2b7ebd60ee1
+ZIP integrity=PASS
+VPK/private assets embedded=NO
+Includes hardware logs, three core dumps, disassembly evidence, build logs.
+
+Code delta patch:
+M29AZ_MISSIONDB_STRCASECMP_FIX_2026-09-12.patch
+patch_sha256=4302fb1e5dc196a3850974f1d130111dabf8f41e41074f3219dd504bf340ea83
