@@ -1,0 +1,74 @@
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -154,19 +154,59 @@
+   # Private hardware-test workspaces may provide campaign loading art under
+   # project/boot_art/.  Package it only when present; public builds remain valid
+   # and fall back to a plain background if the optional files are absent.
++  # Private hardware-test workspaces can point at a separate asset root so
++  # proprietary/converted retail-derived media never needs to live in Git.
++  # The root mirrors the app0 layout (boot_art/, launcher_art/, video_cache/).
++  set(FEARVITA_PRIVATE_ASSET_ROOT "" CACHE PATH
++    "Optional private FEARVita packaging asset root (not part of public source)")
++  if(FEARVITA_PRIVATE_ASSET_ROOT)
++    get_filename_component(FEARVITA_PRIVATE_ASSET_ROOT
++      "${FEARVITA_PRIVATE_ASSET_ROOT}" ABSOLUTE)
++  endif()
++
+   set(FEARVITA_OPTIONAL_BOOT_ART)
+   foreach(_boot_art fear ep pm)
+-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/boot_art/${_boot_art}.png")
++    set(_boot_art_rel "boot_art/${_boot_art}.png")
++    set(_boot_art_src "${CMAKE_CURRENT_SOURCE_DIR}/${_boot_art_rel}")
++    if(FEARVITA_PRIVATE_ASSET_ROOT AND
++       EXISTS "${FEARVITA_PRIVATE_ASSET_ROOT}/${_boot_art_rel}")
++      set(_boot_art_src "${FEARVITA_PRIVATE_ASSET_ROOT}/${_boot_art_rel}")
++    endif()
++    if(EXISTS "${_boot_art_src}")
+       list(APPEND FEARVITA_OPTIONAL_BOOT_ART
+-        FILE "boot_art/${_boot_art}.png" "boot_art/${_boot_art}.png")
++        FILE "${_boot_art_src}" "${_boot_art_rel}")
+     endif()
+   endforeach()
+ 
+   set(FEARVITA_OPTIONAL_LAUNCHER_ART)
+   foreach(_launcher_art selector icon_fear icon_ep icon_pm)
+-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/launcher_art/${_launcher_art}.png")
++    set(_launcher_art_rel "launcher_art/${_launcher_art}.png")
++    set(_launcher_art_src "${CMAKE_CURRENT_SOURCE_DIR}/${_launcher_art_rel}")
++    if(FEARVITA_PRIVATE_ASSET_ROOT AND
++       EXISTS "${FEARVITA_PRIVATE_ASSET_ROOT}/${_launcher_art_rel}")
++      set(_launcher_art_src "${FEARVITA_PRIVATE_ASSET_ROOT}/${_launcher_art_rel}")
++    endif()
++    if(EXISTS "${_launcher_art_src}")
+       list(APPEND FEARVITA_OPTIONAL_LAUNCHER_ART
+-        FILE "launcher_art/${_launcher_art}.png" "launcher_art/${_launcher_art}.png")
++        FILE "${_launcher_art_src}" "${_launcher_art_rel}")
++    endif()
++  endforeach()
++
++  # Converted menu videos are private test assets as well.  Keep the exact
++  # campaign-relative paths expected by fearvita_bink_vita.cpp.
++  set(FEARVITA_OPTIONAL_VIDEO_CACHE)
++  foreach(_video_rel
++      "video_cache/fear/videos/menu.mp4"
++      "video_cache/ep/videosxp/menu.mp4"
++      "video_cache/pm/videosxp2/menuxp2.mp4")
++    set(_video_src "${CMAKE_CURRENT_SOURCE_DIR}/${_video_rel}")
++    if(FEARVITA_PRIVATE_ASSET_ROOT AND
++       EXISTS "${FEARVITA_PRIVATE_ASSET_ROOT}/${_video_rel}")
++      set(_video_src "${FEARVITA_PRIVATE_ASSET_ROOT}/${_video_rel}")
++    endif()
++    if(EXISTS "${_video_src}")
++      list(APPEND FEARVITA_OPTIONAL_VIDEO_CACHE
++        FILE "${_video_src}" "${_video_rel}")
+     endif()
+   endforeach()
+ 
+@@ -185,6 +225,7 @@
+     FILE sce_sys/manual/005.png sce_sys/manual/005.png
+     ${FEARVITA_OPTIONAL_BOOT_ART}
+     ${FEARVITA_OPTIONAL_LAUNCHER_ART}
++    ${FEARVITA_OPTIONAL_VIDEO_CACHE}
+   )
+ else()
+   message(STATUS "VitaSDK not found: configuring host-only Milestone-16 validation build")
