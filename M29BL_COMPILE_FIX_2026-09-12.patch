@@ -1,0 +1,10 @@
+--- a/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp
++++ b/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp
+@@ -814,7 +814,7 @@
+   ++g_localServerMsgCount;
+ 
+   pMsg->SeekTo(0);
+-  g_pGameClientShell->OnMessage(pMsg);
++  static_cast<IClientShell*>(g_pGameClientShell)->OnMessage(pMsg);
+   pMsg->SeekTo(0);
+ }
