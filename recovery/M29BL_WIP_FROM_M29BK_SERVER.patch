@@ -1,0 +1,156 @@
+diff -ruN m29bk_ws/m29ay_lithtech/lithtech-master/runtime/server/src/s_client.cpp m29bl_ws/m29ay_lithtech/lithtech-master/runtime/server/src/s_client.cpp
+--- m29bk_ws/m29ay_lithtech/lithtech-master/runtime/server/src/s_client.cpp	2026-09-11 04:13:20.000000000 +0000
++++ m29bl_ws/m29ay_lithtech/lithtech-master/runtime/server/src/s_client.cpp	2026-09-12 17:40:17.767343857 +0000
+@@ -120,6 +120,11 @@
+ 
+ bool Client::Init( CBaseConn *pBaseConn, bool bIsLocal )
+ {
++#if defined(FEARVITA_VFS)
++	const bool bFearVitaHeadlessLocal = bIsLocal && (pBaseConn == LTNULL);
++#else
++	const bool bFearVitaHeadlessLocal = false;
++#endif
+ 	m_ClientFlags |= CFLAG_WANTALLFILES | CFLAG_SENDGLOBALLIGHT;
+ 
+ 	m_ClientFlags |= CFLAG_SENDCOBJROTATION;
+@@ -140,13 +145,24 @@
+ 		flags |= FTSFLAG_LOCAL;
+ 	}
+ 
+-	FTSInitStruct initStruct;
+-	initStruct.m_OpenFn = sm_FTOpenFn;
+-	initStruct.m_CloseFn = sm_FTCloseFn;
+-	initStruct.m_CantOpenFileFn = sm_FTCantOpenFileFn;
+-	initStruct.m_pNetMgr = &g_pServerMgr->m_NetMgr;
+-	initStruct.m_ConnID = pBaseConn;
+-	m_hFTServ = fts_Init(&initStruct, flags);
++	if (!bFearVitaHeadlessLocal)
++	{
++		FTSInitStruct initStruct;
++		initStruct.m_OpenFn = sm_FTOpenFn;
++		initStruct.m_CloseFn = sm_FTCloseFn;
++		initStruct.m_CantOpenFileFn = sm_FTCantOpenFileFn;
++		initStruct.m_pNetMgr = &g_pServerMgr->m_NetMgr;
++		initStruct.m_ConnID = pBaseConn;
++		m_hFTServ = fts_Init(&initStruct, flags);
++	}
++	else
++	{
++		m_hFTServ = LTNULL;
++		// There is no engine packet transport on Vita.  The monolithic client
++		// already owns the mounted VFS, so no file-transfer negotiation is
++		// necessary; mark the engine-level hello as satisfied.
++		m_ClientFlags |= CFLAG_GOT_HELLO;
++	}
+ 
+ 
+ 	LT_MEM_TRACK_ALLOC(m_ObjInfos = (ObjInfo*)dalloc(sizeof(ObjInfo) * g_pServerMgr->m_nObjInfos),LT_MEM_TYPE_OBJECT);
+@@ -196,7 +212,8 @@
+ 	i_server_shell->OnAddClient((HCLIENT)this);
+ 
+ 	// Don't let them send anything yet..
+-	pBaseConn->SetBandwidth(0);
++	if (pBaseConn)
++		pBaseConn->SetBandwidth(0);
+ 
+ 	// MUST BE FIRST.  Send them the protocol version.
+ 	CPacket_Write cPacket;
+@@ -211,18 +228,22 @@
+ 	cPacket.Writeuint8((uint8)bIsLocal);
+ 	SendToClient(this, CPacket_Read(cPacket), false);
+ 
+-	// Setup their file transfer.
+-	HHashIterator *hIterator = hs_GetFirstElement(server_filemgr->m_hFileTable);
+-	while (hIterator) 
++	// Setup their file transfer.  The Vita headless-local connection shares the
++	// exact server VFS and deliberately has no packet-level file transfer.
++	if (!bFearVitaHeadlessLocal)
+ 	{
+-		HHashElement *hElement = hs_GetNextElement(hIterator);
+-		UsedFile *pUsedFile = (UsedFile*)hs_GetElementUserData(hElement);
++ 		HHashIterator *hIterator = hs_GetFirstElement(server_filemgr->m_hFileTable);
++		while (hIterator) 
++		{
++			HHashElement *hElement = hs_GetNextElement(hIterator);
++			UsedFile *pUsedFile = (UsedFile*)hs_GetElementUserData(hElement);
+  
+-		fts_AddFile(m_hFTServ, 
+-			pUsedFile->GetFilename(), pUsedFile->m_FileSize, pUsedFile->m_FileID, 
+-			(uint16)(pUsedFile->m_Flags | FFLAG_SENDWAIT));
++			fts_AddFile(m_hFTServ, 
++				pUsedFile->GetFilename(), pUsedFile->m_FileSize, pUsedFile->m_FileID, 
++				(uint16)(pUsedFile->m_Flags | FFLAG_SENDWAIT));
++		}
++		fts_FlushAddedFiles(m_hFTServ); 
+ 	}
+-	fts_FlushAddedFiles(m_hFTServ); 
+ 	
+ 	// Now set them up to try to get into the world, after their file transfer
+ 	// has completed.
+diff -ruN m29bk_ws/m29ay_lithtech/lithtech-master/runtime/server/src/serverde_impl.cpp m29bl_ws/m29ay_lithtech/lithtech-master/runtime/server/src/serverde_impl.cpp
+--- m29bk_ws/m29ay_lithtech/lithtech-master/runtime/server/src/serverde_impl.cpp	2026-09-12 09:38:49.000000000 +0000
++++ m29bl_ws/m29ay_lithtech/lithtech-master/runtime/server/src/serverde_impl.cpp	2026-09-12 17:48:49.209627952 +0000
+@@ -4,6 +4,11 @@
+ // ---------------------------------------------------------------
+ //
+ #include "bdefs.h"
++
++#if defined(FEARVITA_VFS)
++class ILTMessage_Read;
++extern "C" void FearVita_ClientReceiveServerMessage(ILTMessage_Read* pMsg);
++#endif
+ #include "ltbasedefs.h"
+ 
+ #include "servermgr.h"
+@@ -1289,15 +1294,31 @@
+ 	cWrapMsg.WritePacket(pServerMsg->GetPacket());
+ 	CPacket_Read cFinalMsg(cWrapMsg);
+ 
++	auto FearVitaSendGameMessage = [&](Client* pClient)
++	{
++#if defined(FEARVITA_VFS)
++		if (pClient && (pClient->m_ClientFlags & CFLAG_LOCAL))
++		{
++			// The Vita monolith has no packet-level client engine.  Deliver the
++			// original game message directly to the Retail ClientShell while the
++			// server continues to own all gameplay/client state.
++			pMsg->SeekTo(0);
++			FearVita_ClientReceiveServerMessage(pMsg);
++			return;
++		}
++#endif
++		::SendToClient(pClient, cFinalMsg, true, flags);
++	};
++
+ 	if (hSendTo)
+ 	{
+-		::SendToClient((Client*)hSendTo, cFinalMsg, true, flags);
++		FearVitaSendGameMessage((Client*)hSendTo);
+ 	}
+ 	else
+ 	{
+ 		for (LTLink *pCur = g_pServerMgr->m_Clients.m_Head.m_pNext; pCur != &g_pServerMgr->m_Clients.m_Head; pCur = pCur->m_pNext)
+ 		{
+-			::SendToClient((Client*)pCur->m_pData, cFinalMsg, true, flags);
++			FearVitaSendGameMessage((Client*)pCur->m_pData);
+ 		}
+ 	}
+ 
+@@ -1379,6 +1400,17 @@
+ 	return LT_OK;
+ }
+ 
++#if defined(FEARVITA_VFS)
++extern "C" LTRESULT FearVita_ServerDispatchClientMessage(HCLIENT hClient, ILTMessage_Read* pMsg)
++{
++	if (!hClient || !pMsg || !i_server_shell)
++		return LT_NOTINITIALIZED;
++	pMsg->SeekTo(0);
++	i_server_shell->OnMessage(hClient, pMsg);
++	return LT_OK;
++}
++#endif
++
+ LTRESULT CLTServer::SendToServer(ILTMessage_Read *pMsg, HOBJECT hSender, uint32 flags) 
+ {
+ 	FN_NAME(CLTServer::SendToServer);
