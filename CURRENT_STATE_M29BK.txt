@@ -1,0 +1,25 @@
+FEARVita 0.08 / M29BK — 2026-09-12
+
+Hardware-proven M29BJ frontier:
+- Jupiter EX v113 Intro world parses all 347 BSPs.
+- 93 blind-data chunks and 1,988 server objects are reached.
+- Retail loading progress reaches 80%.
+- Object milestones reach at least index 1663 before the old diagnostic cap is exhausted.
+- The M29BJ core maps the next crash to CAINavMesh::RuntimeSetup during PostStartWorld.
+
+M29BK changes:
+- Rebuilds FEAR/LithTech game/runtime targets with -fno-short-enums so serialized Win32/MSVC enum fields remain 4 bytes on ARM/Vita.
+- Compile-time Vita assertions verify the critical NavMesh ABI, including 72-byte CAINavMeshEdge and CAINavMeshPoly.
+- RuntimeSetup now receives the real BlindObject buffer length and preflights every packed section with bounds checks before legacy pointer fix-up.
+- Fixes the stale m_cAINavMeshEdgeLists reset in TermNavMesh.
+- Suppresses repeated FindObjectsCB overflow spam after the first few messages and raises the diagnostic cap to 2 MiB.
+- Keeps only the cyan retail loading bar; audio behavior is unchanged.
+- F.E.A.R. Model00p remains a separate known frontier: the old LTB runtime identifies the MODL! container as LTB type 77 and cannot load it yet.
+
+Build verification:
+- ARM ELF, VELF and FSELF build succeeded.
+- Complete VPK contains 22 payload files / 35 ZIP entries, APP_VER 00.08, and passes ZIP integrity testing.
+- Embedded eboot.bin is byte-identical to the built M29BK eboot.
+- EBOOT SHA-256: 71bf928453df714588df92009671e7fd906897bbd4f4000f0ee2129b5157571a
+- VPK SHA-256: 65252da31112eed20325721eae21a2f9b279a2a0e161e611f1b92e817197e569
+- M29BJ->M29BK patch SHA-256: 3a3c9b05c33f75915beb3068518e807ef5eb71acd442c63d51a1238f76a15f0d
