@@ -1,0 +1,33 @@
+FEARVita M29BG / 0.04 — 2026-09-12
+
+Hardware result from M29BF:
+- M29BF/0.03 definitely ran on Vita; 48 kHz stereo hardware output and separate SFX/music/voice main levels initialized successfully.
+- ScreenPreload and the direct loading callback were reached, but the visible progress remained 0%.
+- Intro.World00p was found and opened.
+- The previous hard crash was eliminated; CServerMgr::LoadWorld returned LT_INVALIDWORLDFILE (42) cleanly.
+
+M29BG root-cause fix:
+- FEARVita's ILTStream::ReadString incorrectly treated packed LithTech strings as NUL-terminated C strings.
+- Retail CGenLTStream stores strings as uint16 length + exactly N payload bytes.
+- WorldBsp::Load uses ReadString for the world-model name; the old Vita implementation desynchronized the World00p stream there and caused error 42.
+- The Vita adapter now matches CGenLTStream exactly, including truncation/consumption semantics.
+
+Loading progress:
+- CLoadingScreen still receives real synchronous loading callbacks.
+- World BSP reports early real milestones after header/world-info/world-tree plus per-model progress.
+- The Vita fallback bar now uses the known-working direct GT4 DrawPrim path at fixed screen-relative coordinates and is visible even at 0% as a track.
+
+Audio:
+- Hardware remains Vita MAIN 48 kHz / stereo and is opened synchronously.
+- 44.1 kHz retail PCM now uses an exact 160/147 rational, precomputed 160-phase 16-tap Blackman-windowed FIR conversion instead of the previous short per-sample sinc implementation.
+- The resampled menu PCM is exported once to ux0:data/FEARVita/debug/IntroIntLp1v2_48k.wav with hash/peak/RMS diagnostics, allowing a digital comparison without another speculative hardware build.
+- FEAR's independent SFX/music/voice main levels remain active.
+
+Build validation:
+- ARM/Vita compile + link succeeded.
+- Complete package contains 22 files and app version 00.04.
+- VPK SHA-256: a33ec3f11a7455024c3ee5242930dcb6d7d3534bf28933b4e4b0ff123d66cb33
+- EBOOT SHA-256: 0928929712abba23bb666aecad5c0ee8a3499e22be7f7134213b9723693b3eeb
+
+Hardware qualification:
+One base F.E.A.R. run only: New Game -> Medium. Observe the loading bar and whether Intro enters. If it still fails, fear_fear.log is sufficient unless the Vita produces a new crashdump. The exported IntroIntLp1v2_48k.wav should be preserved if the audible menu mismatch remains.
