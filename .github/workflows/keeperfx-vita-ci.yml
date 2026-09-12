@@ -110,7 +110,7 @@ jobs:
       - name: Upload known-good Touch VPK
         uses: actions/upload-artifact@v4
         with:
-          name: keeperfx-vita-bootstrap-known-good
+          name: keeperfx-vita-bootstrap-known-good-v3
           path: |
             keeperfx/out/build/vita-release/*.vpk
             keeperfx/out/build/vita-release/*.elf
