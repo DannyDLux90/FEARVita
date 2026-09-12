@@ -1,62 +1,69 @@
-FEARVita M29AY/M29AZ/M29BA — CURRENT CANONICAL STATE — 2026-09-12
+FEARVita M29AY/M29AZ/M29BA/M29BB — CURRENT CANONICAL STATE — 2026-09-12
 
 STATUS
 - Branch: m29ay-objectdll-world-runtime
 - M29AX remains the last fully hardware-proven release.
 - M29AY achieved full ARM link, VELF, SELF and VPK packaging.
-- M29AZ fixed the hardware-proven MissionDB crash caused by recursive strcasecmp() from a macro collision.
-- M29BA fixes the next hardware-proven crash: FEAR/Jupiter LTObjRef was inserted into the old LithTech reference list using the wrong complete-object address instead of its LTLink<HOBJECT> base subobject.
+- M29AZ fixed the hardware-proven recursive strcasecmp() stack overflow.
+- M29BA corrected the LTObjRef base-subobject pointer adjustment, but hardware retest proved the same AddAfter crash remained.
+- M29BB fixes the deeper cause: monolithic LTObjRef client/server ownership dispatch.
 - Do not fake GS_PLAYING; real ObjectDLL/server/world runtime remains the implementation principle.
 
-M29AZ HARDWARE RETEST
-- The previous strcasecmp recursion is gone: all campaigns advance far beyond MissionDB.
-- FEAR/EP retest cores both normalize to 0x81590790 in FearVitaLegacyCheapLTLink::AddAfter.
-- Normalized return chain: CInterfaceMgr::Init -> CClientFXMgr::SetCamera -> LTObjRef::operator= -> LTObjRef::Link -> CLTServer::LinkObjRef -> legacy AddAfter.
-- PM advances farther and later crashes in _malloc_r from operator new / CVitaSoundMgr::PlaySound; this is compatible with earlier heap corruption but audio is not claimed as an independent root cause yet.
+M29BA HARDWARE RETEST
+- F.E.A.R., Extraction Point and Perseus Mandate all reach interface initialization and end at if-camera-created / if-interfacefx-before.
+- All three new cores normalize to the identical executable PC 0x81590790 in FearVitaLegacyCheapLTLink::AddAfter.
+- Therefore the M29BA +4/-4 base-subobject fix was ABI-correct but incomplete.
 
-M29BA ROOT CAUSE / FIX
-- LTObjRef is polymorphic and derives from LTLink<HOBJECT>.
-- On ARM/Vita the complete LTObjRef* begins at the vptr; the LTLink<HOBJECT> base subobject starts 4 bytes later.
-- The old bridge used reinterpret_cast<CheapLTLink*>(pRef), causing the legacy list code to treat vptr/adjacent fields as prev/next pointers and corrupt memory.
-- M29BA first static_casts LTObjRef* to the true LTLink<HOBJECT>* base subobject, then bridges that exact address to the legacy list layout.
-- Object-reference deletion performs the reverse conversion before LTObjRef callbacks.
-- Generated ARM object code confirms +4 bytes on insertion and -4 bytes on reverse conversion.
-- No fake game-state transition is introduced.
+M29BB ROOT CAUSE
+- Original LithTech assumes client and server live in separate modules.
+- FEARVita is monolithic, so both ILTClient and ILTServer holders exist simultaneously.
+- Original LTObjRef::Link preferred ILTServer whenever present.
+- Frontend camera/FX objects created by the Vita ILTClient are opaque VitaLocalObject handles, not LTObject instances.
+- The server-first choice sent a VitaLocalObject into CLTServer::LinkObjRef, which cast it to LTObject*, read a bogus m_RefList, and crashed in legacy AddAfter.
+
+M29BB FIX
+- Vita LTObjRef::Link now asks ILTClient ownership first.
+- Vita ILTClient LinkObjRef returns LT_OK only for handles in its VitaLocalObject registry.
+- Unknown client handles return LT_NOTFOUND and fall through to ILTServer, so genuine server LTObject references still use real runtime reference-list tracking.
+- First eight accepted local links are logged as: [objref] client-local-link accepted type=<type> count=<n>.
+- Final ARM disassembly confirms client holder is called before server holder.
+- No fake object/world/game-state transition is introduced.
 
 CORE BUILD
 - Retail ObjectDLL target: 533/533 ARM/Vita PASS, _FINAL=1.
 - Expanded real runtime/server/world/model/collision target: PASS.
 - Full FEARVita ARM ELF link: PASS.
-- M29BA ELF SHA-256: 27ff2a108c04e1e01d92c100768ef1d66f4501ac94266816a4b40100045c8b59
-- M29BA VELF SHA-256: 7b41b6cb478b8a9d667e32bde1057a9b131c66b62257969a172e056ee8398499
-- M29BA eboot.bin SHA-256: 8f8cd8c62b92711913e678bd71df64357e81987bfc1f4a16f706a6f7c5f82316
+- M29BB ELF SHA-256: 684e061f97e9c3ee9b563a4eb5cb1015943cbf3f21fa6068739d6b3f6e1eb544
+- M29BB VELF SHA-256: 93a591cacf5f3763d711eeb4128544ea0d1aeaa236625800333c3fd295c34942
+- M29BB eboot.bin SHA-256: 1f855df87ee33dd948ba757c395bf79e8901403c326cf793f3bc117ef035753a
 
-M29BA VPK
-- File: FEARVita_M29BA_0.02_LTOBJREF_ABI_FIX_2026-09-12.vpk
-- Size: 21,923,532 bytes
-- SHA-256: 47fa72f0f5166f3ccf9298607b9c1fee02cec3d24ec7997b63675e59e6a217e0
+M29BB VPK
+- File: FEARVita_M29BB_0.02_LTOBJREF_OWNERSHIP_DISPATCH_2026-09-12.vpk
+- Size: 21,926,651 bytes
+- SHA-256: 7d2deb9cbda06581540a027a28c96b098fce8a91c444db61680cddbe6013202e
 - ZIP integrity: PASS
 - Entries: 22
-- Embedded eboot.bin is byte-identical to the verified SELF.
-- All ten private M29AX menu/launcher/video assets are byte-identical to the M29AX copies and remain packaging-only.
+- Embedded eboot.bin is byte-identical to verified SELF.
+- All ten private M29AX launcher/menu/video assets are 10/10 byte-identical and remain packaging-only.
 
 CURRENT BACKUPS
-- Source: FEARVita_M29BA_SOURCE_LTOBJREF_FIX_2026-09-12.zip
-  SHA-256: 37c70db14d6fd2d8abba882a39559007e1d8e243998e86b9bbc4259ff5ae801a
-- Workspace: FEARVita_M29BA_WORKSPACE_LTOBJREF_FIX_2026-09-12.zip
-  SHA-256: 083748364213c1ec04b05d5fe442f2efbf1778c89f4f98167d7e942b77d03cf5
-- Both archives passed full ZIP integrity tests.
-- Neither archive contains a VPK or private packaging assets.
-- Workspace contains M29AZ hardware logs, all three uploaded core dumps, symbolization notes and M29BA build logs.
+- Source: FEARVita_M29BB_SOURCE_OBJREF_DISPATCH_FIX_2026-09-12.zip
+  SHA-256: 65a4c8c69576dc916c8ef7c6fdb27f939d2c48ff9806efc29ea18050dd53225f
+- Workspace: FEARVita_M29BB_WORKSPACE_OBJREF_DISPATCH_FIX_2026-09-12.zip
+  SHA-256: 7af19ca959f134ee7edb57b53cc3d69fd9ac12882d6dc15167940cd284685d93
+- Both passed full ZIP integrity tests.
+- Neither contains any VPK or private boot_art/launcher_art/video_cache payload.
+- Workspace contains the latest hardware logs, all three latest core dumps, normalized crash-PC summary, M29BB build logs and LTObjRef disassembly.
 
 RECOVERY DELTA
-- Exact M29AZ -> M29BA code delta touches 4 code files.
-- Raw patch SHA-256: aab4e2ac6416f75d4a0c3823cbf8225adb03b920ed087feede4432bfa4a09bca
-- Stored as patches/recovered/M29BA_FROM_M29AZ_2026-09-12.patch.xz.b64.part00
+- Exact M29BA -> M29BB patch: patches/recovered/M29BB_FROM_M29BA_2026-09-12.patch
+- Source overlay and patched LithTech tree both contain the ownership-dispatch fix.
 
 SELECTOR STARTUP SOUND
 - Launcher still resolves the retail SplashScreenSound from installed FEAR data and plays it once before game selection.
 
 NEXT STEP
-- Hardware-test M29BA. If another crash occurs, collect the per-campaign log and new psp2core and normalize it against the M29BA ELF preserved in the current workspace.
-- Do not claim M29BA hardware success until that test exists.
+- Hardware-test M29BB, preferably F.E.A.R. first.
+- Confirm [objref] client-local-link accepted appears and whether execution advances beyond if-interfacefx-before.
+- If another crash occurs, preserve the new per-campaign log and psp2core and normalize it against the M29BB ELF in the current workspace before changing code.
+- Do not claim M29BB hardware success until that test exists.
