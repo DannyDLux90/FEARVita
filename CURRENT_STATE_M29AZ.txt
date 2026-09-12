@@ -1,0 +1,46 @@
+FEARVita M29AZ — CURRENT STATE — 2026-09-12
+
+BASE
+- Branch: m29ay-objectdll-world-runtime
+- M29AX: last previously stable frontend baseline.
+- M29AY: first full ObjectDLL/runtime ELF/VELF/SELF/VPK build; hardware test exposed a deterministic MissionDB startup crash.
+- M29AZ: fixes that hardware-proven crash; hardware retest pending.
+
+HARDWARE CRASH ROOT CAUSE
+- FEAR, Extraction Point, and Perseus Mandate all stopped after `weapon-db-ok` / `before-mission-db`.
+- Three Vita core dumps normalize to the exact same M29AY ELF PC: 0x815f5372.
+- That PC was inside a locally generated weak `strcasecmp()` wrapper that called itself recursively.
+- Cause: FEARVita `stricmp -> strcasecmp` portability macro was active before Linux `ltbasedefs.h` defined its `stricmp` helper.
+- Result: infinite recursion and main-thread stack overflow during MissionDB case-insensitive lookups.
+
+M29AZ FIX
+- `fearvita_msvc_compat.h` supports `FEARVITA_NO_MSVC_STRICMP_ALIASES`.
+- Only runtime/kernel/src/sys/win/stringmgr.cpp receives that opt-out compile definition.
+- `stringmgr.cpp.obj` now has `U strcasecmp` and does not define a weak recursive copy.
+- Final M29AZ ELF has a real strong libc `strcasecmp` implementation with no self-call.
+
+BUILD STATUS
+- Full FEARVita ARM ELF: PASS
+  SHA-256 50496c07cd84ff09cf6f9b7006bb2dd4fd094831a07ccb35c91398c834555d6d
+- VELF: PASS
+  SHA-256 f60d5de9b45bc52f7d1eee5b2634e20a782e0bf9c0e80f5042ee324386bdfb23
+- SELF eboot.bin: PASS
+  SHA-256 151a25c5ec1d13cd5c563d811aa1e0cc6d1076f154ca801578b229229920b85c
+- Full 22-file VPK: PASS packaging/integrity
+  SHA-256 63d346f36fc3f24f2c5fff7e8156a59ee66b3d3e1f4865aa0ec6fee9a3aec6cd
+- TITLE_ID FEAR00001; APP_VER 00.02.
+- Embedded eboot.bin is byte-identical to the verified SELF.
+- Ten private menu/launcher/video assets are byte-identical to M29AX and remain packaging-only.
+
+NEXT HARDWARE TEST
+1. Install the standalone M29AZ VPK.
+2. Test F.E.A.R. first through the point that previously crashed at MissionDB.
+3. If it advances, continue through the loading screen toward Worlds\\Release\\Intro.
+4. Repeat Extraction Point and Perseus Mandate.
+5. Return fresh fear_fear.log / fear_ep.log / fear_pm.log and any new psp2dmp cores if a later crash occurs.
+
+NO-FAKE RULES
+- No manual GS_PLAYING transition.
+- No fake world-load success.
+- Real ObjectDLL/runtime path remains the target.
+- M29AZ is not called hardware validated until the new VPK succeeds on a real Vita.
