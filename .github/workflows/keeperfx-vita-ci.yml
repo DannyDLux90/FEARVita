@@ -51,6 +51,26 @@ jobs:
           p.write_text(s, encoding='utf-8')
           PY
 
+      - name: Install touch-first Vita controls
+        working-directory: keeperfx
+        run: |
+          cp ../ci/keeperfx-vita/input_vita_touch.c src/input/input_vita.c
+          cp ../ci/keeperfx-vita/WindowSystemVita_touch.cpp src/platform/WindowSystemVita.cpp
+
+      - name: Fix Vita renderer warning promoted to error
+        working-directory: keeperfx
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/engine_render.c')
+          s = p.read_text(encoding='utf-8')
+          needle = '    unsigned short flg_mem;\n'
+          if needle not in s:
+              raise SystemExit('engine_render.c flg_mem anchor not found')
+          s = s.replace(needle, '', 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
         uses: actions/cache@v4
@@ -111,9 +131,9 @@ jobs:
           cmake --build --preset vita-reldebug > build.log 2>&1
           status=$?
           echo '=== BUILD TAIL ==='
-          tail -n 120 build.log
+          tail -n 160 build.log
           echo '=== LINKER/ERROR DIAGNOSTICS ==='
-          grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 240 || true
+          grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 280 || true
           echo '=== END DIAGNOSTICS ==='
           exit "$status"
 
