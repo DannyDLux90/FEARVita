@@ -105,7 +105,16 @@ jobs:
 
       - name: Build VPK
         working-directory: keeperfx
-        run: cmake --build --preset vita-reldebug
+        shell: bash
+        run: |
+          set +e
+          cmake --build --preset vita-reldebug 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          echo
+          echo '=== LINKER/ERROR DIAGNOSTICS ==='
+          grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 240 || true
+          echo '=== END DIAGNOSTICS ==='
+          exit "$status"
 
       - name: Upload VPK and ELF
         uses: actions/upload-artifact@v4
