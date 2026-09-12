@@ -1,0 +1,76 @@
+name: KeeperFX Vita Runtime Data
+
+on:
+  push:
+    branches: [ "keeperfx-vita-runtime" ]
+  workflow_dispatch:
+
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout KeeperFX exact Vita source
+        uses: actions/checkout@v4
+        with:
+          repository: cerwym/keeperfx
+          ref: 466e0753e17cee876f2ace6fa6b1e17f3ad44b0d
+          fetch-depth: 1
+          submodules: recursive
+          path: keeperfx
+
+      - name: Install host packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl p7zip-full zip libpng-dev gettext
+
+      - name: Generate KeeperFX runtime assets
+        working-directory: keeperfx
+        run: |
+          make -j2 pkg-gfx pkg-sfx pkg-languages
+
+      - name: Assemble exact runtime tree
+        working-directory: keeperfx
+        shell: bash
+        run: |
+          set -e
+          rm -rf vita-runtime
+          mkdir -p vita-runtime
+          cp -a pkg/. vita-runtime/
+          cp config/keeperfx.cfg vita-runtime/keeperfx.cfg
+          mkdir -p vita-runtime/creatrs vita-runtime/fxdata vita-runtime/mods vita-runtime/campgns vita-runtime/levels vita-runtime/multiplayer
+          cp -a config/creatrs/. vita-runtime/creatrs/
+          cp -an config/fxdata/. vita-runtime/fxdata/
+          cp -a config/mods/. vita-runtime/mods/ || true
+          cp -an campgns/. vita-runtime/campgns/
+          cp -an levels/. vita-runtime/levels/
+          cp -an multiplayer/. vita-runtime/multiplayer/
+          find vita-runtime -name '*.po' -delete
+          find vita-runtime -name '*.pot' -delete
+          find vita-runtime -name '.git*' -prune -exec rm -rf {} + || true
+          du -sh vita-runtime
+
+      - name: Build STORE-only runtime ZIP
+        working-directory: keeperfx
+        run: |
+          rm -f keeperfx-vita-runtime.zip
+          cd vita-runtime
+          zip -0 -qr ../keeperfx-vita-runtime.zip .
+          cd ..
+          unzip -t keeperfx-vita-runtime.zip | tail -n 3
+          sha256sum keeperfx-vita-runtime.zip > keeperfx-vita-runtime.zip.sha256
+
+      - name: Package exact patched-source base workspace
+        working-directory: keeperfx
+        run: |
+          tar --exclude='./.git' --exclude='./out' --exclude='./pkg' --exclude='./vita-runtime' -czf keeperfx-vita-source-base.tar.gz .
+
+      - name: Upload runtime and source base
+        uses: actions/upload-artifact@v4
+        with:
+          name: keeperfx-vita-runtime-exact
+          compression-level: 0
+          path: |
+            keeperfx/keeperfx-vita-runtime.zip
+            keeperfx/keeperfx-vita-runtime.zip.sha256
+            keeperfx/keeperfx-vita-source-base.tar.gz
+          if-no-files-found: error
