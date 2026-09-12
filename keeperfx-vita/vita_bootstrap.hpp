@@ -62,6 +62,15 @@ static bool install_bundled_data() {
     }
     delete[] buffer; unzClose(zf); if(ok&&rc==UNZ_END_OF_LIST_OF_FILE){FILE*m=fopen(kMarkerPath,"wb");if(!m){log_line("could not write data marker");return false;}fprintf(m,"KeeperFX Vita data v3\n");fclose(m);log_line("first-run data install complete");return true;} log_line("first-run data install failed; next start will resume");return false;
 }
-static int run_kfxmain(int argc,char **argv,bool deeper){ if(!deeper)return kfxmain(argc,argv); std::vector<char*> args; for(int i=0;i<argc;++i)args.push_back(argv[i]); static char a0[]="keeperfx",flag[]="-campaign",campaign[]="deepdngn"; if(args.empty())args.push_back(a0); args.push_back(flag);args.push_back(campaign);args.push_back(NULL);log_line("LiveArea direct start: Deeper Dungeons (campaign deepdngn)");return kfxmain((int)args.size()-1,args.data()); }
+static int run_kfxmain(int argc,char **argv,bool deeper){
+    if(!deeper)return kfxmain(argc,argv);
+    std::vector<char*> args;
+    for(int i=0;i<argc;++i)args.push_back(argv[i]);
+    static char a0[]="keeperfx", flag[]="-vitadeeper";
+    if(args.empty())args.push_back(a0);
+    args.push_back(flag); args.push_back(NULL);
+    log_line("LiveArea direct start: Deeper Dungeons map-pack selector");
+    return kfxmain((int)args.size()-1,args.data());
+}
 }
 #endif
