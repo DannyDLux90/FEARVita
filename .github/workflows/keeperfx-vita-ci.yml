@@ -1,0 +1,100 @@
+name: KeeperFX Vita CI
+
+on:
+  push:
+    branches: [ "keeperfx-vita-ci" ]
+  workflow_dispatch:
+
+jobs:
+  build-vita:
+    name: Build KeeperFX PS Vita
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/cerwym/build-vitasdk:latest
+      options: --user root
+
+    steps:
+      - name: Checkout CI helper branch
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: Checkout KeeperFX Vita port
+        uses: actions/checkout@v4
+        with:
+          repository: cerwym/keeperfx
+          ref: cfab287c7a1a5f805ddaf35f98a89db023e0ef97
+          fetch-depth: 1
+          submodules: recursive
+          path: keeperfx
+
+      - name: Mark repositories safe
+        run: git config --global --add safe.directory '*'
+
+      - name: Apply current sound API fix
+        working-directory: keeperfx
+        run: python3 ../ci/keeperfx-vita/patch_audio.py
+
+      - name: Cache FFmpeg-vita
+        id: cache-ffmpeg-vita
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/vitasdk/arm-vita-eabi/lib/libavformat.a
+            /usr/local/vitasdk/arm-vita-eabi/lib/libavcodec.a
+            /usr/local/vitasdk/arm-vita-eabi/lib/libavutil.a
+            /usr/local/vitasdk/arm-vita-eabi/lib/libswresample.a
+            /usr/local/vitasdk/arm-vita-eabi/include/libavformat
+            /usr/local/vitasdk/arm-vita-eabi/include/libavcodec
+            /usr/local/vitasdk/arm-vita-eabi/include/libavutil
+            /usr/local/vitasdk/arm-vita-eabi/include/libswresample
+          key: keeperfx-ffmpeg-vita-fish47-v3
+
+      - name: Build FFmpeg-vita
+        if: steps.cache-ffmpeg-vita.outputs.cache-hit != 'true'
+        run: |
+          rm -rf /tmp/FFmpeg-vita
+          git clone --depth 1 https://github.com/fish47/FFmpeg-vita.git /tmp/FFmpeg-vita
+          cd /tmp/FFmpeg-vita
+          curl -fsSL https://raw.githubusercontent.com/FFmpeg/FFmpeg/n6.0.1/libavformat/smacker.c -o libavformat/smacker.c
+          curl -fsSL https://raw.githubusercontent.com/FFmpeg/FFmpeg/n6.0.1/libavcodec/smacker.c -o libavcodec/smacker.c
+          ./configure \
+            --target-os=vita \
+            --enable-vita \
+            --disable-shared \
+            --disable-programs \
+            --disable-doc \
+            --disable-debug \
+            --enable-static \
+            --enable-small \
+            --prefix=$VITASDK/arm-vita-eabi \
+            --disable-everything \
+            --enable-decoder=aac_vita,mp3_vita,aac,adpcm_ima_qt,alac,flac,mp3,opus,pcm_s16le,pcm_s24le,pcm_s32le,vorbis,smacker,smackaud \
+            --enable-demuxer=aac,mp3,mp4,m4a,matroska,flac,ogg,opus,wav,smacker \
+            --enable-muxer=null \
+            --enable-parser=aac,mpegaudio,vorbis,opus \
+            --enable-protocol=file \
+            --disable-network \
+            --disable-bzlib
+          make -j$(nproc)
+          make install
+
+      - name: Install vitaGL dependencies
+        run: $VITASDK/bin/vdpm vitashark mathneon
+
+      - name: Configure Vita build
+        working-directory: keeperfx
+        run: cmake --preset vita-reldebug
+
+      - name: Build VPK
+        working-directory: keeperfx
+        run: cmake --build --preset vita-reldebug
+
+      - name: Upload VPK and ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: keeperfx-vita-playable
+          path: |
+            keeperfx/out/build/vita-reldebug/*.vpk
+            keeperfx/out/build/vita-reldebug/*.elf
+          if-no-files-found: error
