@@ -1,68 +1,62 @@
-FEARVita M29AY — CURRENT CANONICAL STATE — 2026-09-12
+FEARVita M29AY/M29AZ/M29BA — CURRENT CANONICAL STATE — 2026-09-12
 
 STATUS
 - Branch: m29ay-objectdll-world-runtime
-- M29AX remains the last hardware-proven FEARVita build.
-- M29AY now has a complete ARM executable link, VELF, SELF and installable VPK, but is NOT hardware validated yet.
+- M29AX remains the last fully hardware-proven release.
+- M29AY achieved full ARM link, VELF, SELF and VPK packaging.
+- M29AZ fixed the hardware-proven MissionDB crash caused by recursive strcasecmp() from a macro collision.
+- M29BA fixes the next hardware-proven crash: FEAR/Jupiter LTObjRef was inserted into the old LithTech reference list using the wrong complete-object address instead of its LTLink<HOBJECT> base subobject.
 - Do not fake GS_PLAYING; real ObjectDLL/server/world runtime remains the implementation principle.
+
+M29AZ HARDWARE RETEST
+- The previous strcasecmp recursion is gone: all campaigns advance far beyond MissionDB.
+- FEAR/EP retest cores both normalize to 0x81590790 in FearVitaLegacyCheapLTLink::AddAfter.
+- Normalized return chain: CInterfaceMgr::Init -> CClientFXMgr::SetCamera -> LTObjRef::operator= -> LTObjRef::Link -> CLTServer::LinkObjRef -> legacy AddAfter.
+- PM advances farther and later crashes in _malloc_r from operator new / CVitaSoundMgr::PlaySound; this is compatible with earlier heap corruption but audio is not claimed as an independent root cause yet.
+
+M29BA ROOT CAUSE / FIX
+- LTObjRef is polymorphic and derives from LTLink<HOBJECT>.
+- On ARM/Vita the complete LTObjRef* begins at the vptr; the LTLink<HOBJECT> base subobject starts 4 bytes later.
+- The old bridge used reinterpret_cast<CheapLTLink*>(pRef), causing the legacy list code to treat vptr/adjacent fields as prev/next pointers and corrupt memory.
+- M29BA first static_casts LTObjRef* to the true LTLink<HOBJECT>* base subobject, then bridges that exact address to the legacy list layout.
+- Object-reference deletion performs the reverse conversion before LTObjRef callbacks.
+- Generated ARM object code confirms +4 bytes on insertion and -4 bytes on reverse conversion.
+- No fake game-state transition is introduced.
 
 CORE BUILD
 - Retail ObjectDLL target: 533/533 ARM/Vita PASS, _FINAL=1.
-- Shared client/server block: PASS.
-- Expanded real LithTech runtime/server/world/model/collision block: PASS at current Runtime64 closure.
-- Full client now builds with _FINAL=1.
+- Expanded real runtime/server/world/model/collision target: PASS.
 - Full FEARVita ARM ELF link: PASS.
-  SHA-256: 7fa7a2ab6957bb46c7c98574f6e02ea79b2f8601c7ee26fb584eb6cde21a0b05
-- VELF: PASS.
-  SHA-256: 7614746c596072065680140138d586a6d8a2fa5141d297753b3004aa78438a37
-- SELF eboot.bin: PASS, 7,567,945 bytes.
-  SHA-256: 681aab35c2e7b801864f1dcfc67df0c523e33890d9a615927e8c4d17e7c72e95
+- M29BA ELF SHA-256: 27ff2a108c04e1e01d92c100768ef1d66f4501ac94266816a4b40100045c8b59
+- M29BA VELF SHA-256: 7b41b6cb478b8a9d667e32bde1057a9b131c66b62257969a172e056ee8398499
+- M29BA eboot.bin SHA-256: 8f8cd8c62b92711913e678bd71df64357e81987bfc1f4a16f706a6f7c5f82316
 
-SELECTOR STARTUP SOUND
-- Launcher resolves the retail SplashScreenSound setting from the installed FEAR game database.
-- It plays exactly once immediately before the game-selection menu.
-- No retail audio file is committed or bundled for this feature.
-
-PACKAGING FIX — 2026-09-12
-- The first M29AY VPK contained only 12 files and was about 8.1 MiB because the restored source workspace did not contain the private M29AX test assets.
-- Missing groups were boot_art/, launcher_art/ and video_cache/.
-- This was a packaging regression, not a smaller executable.
-- CMake now supports FEARVITA_PRIVATE_ASSET_ROOT, a private app0-style packaging root. Public/source builds remain asset-free.
-- The ten private selector/loading/video assets were recovered from the user-provided M29AX VPK and verified byte-for-byte identical before reuse.
-
-CORRECTED INSTALLABLE TEST VPK
-- File: FEARVita_M29AY_0.02_OBJECTDLL_RUNTIME_SPLASH_FULL_2026-09-12.vpk
-- Size: 21,925,480 bytes
-- SHA-256: cb7c57bac4a33fb01b48d33d6f23d243cf321126c7fcbc2b34d5d7773c1a23d4
+M29BA VPK
+- File: FEARVita_M29BA_0.02_LTOBJREF_ABI_FIX_2026-09-12.vpk
+- Size: 21,923,532 bytes
+- SHA-256: 47fa72f0f5166f3ccf9298607b9c1fee02cec3d24ec7997b63675e59e6a217e0
 - ZIP integrity: PASS
 - Entries: 22
-- TITLE_ID: FEAR00001
-- APP_VER: 00.02
-- Embedded eboot.bin is byte-identical to the verified M29AY SELF.
-- All ten private M29AX menu/launcher assets are byte-identical to the M29AX copies.
-
-M29AX COMPARISON
-- M29AX VPK size: 17,698,777 bytes
-- M29AX eboot.bin size: 3,050,929 bytes
-- M29AX eboot.bin SHA-256: 0c0583db1bac1b4710f990d8bb255e39ff1b98a52f455ecc97d00b99c7ef15bd
-- Corrected M29AY is larger because its Runtime64 SELF is ~4.52 MB larger while retaining the same ten private menu/launcher assets.
+- Embedded eboot.bin is byte-identical to the verified SELF.
+- All ten private M29AX menu/launcher/video assets are byte-identical to the M29AX copies and remain packaging-only.
 
 CURRENT BACKUPS
-- Source: FEARVita_M29AY_SOURCE_FULLASSETSFIX_2026-09-12.zip
-  SHA-256: 56e5274eb60aa9d366e4b8547fda4b4258bb16c4ee7d9b065f0d556c294ea34f
-- Workspace: FEARVita_M29AY_WORKSPACE_FULLASSETSFIX_2026-09-12.zip
-  SHA-256: f4163bc9da6a65e73774f56c8eb74f06b652855a340d2c0cb127ca7fbfcd622e
+- Source: FEARVita_M29BA_SOURCE_LTOBJREF_FIX_2026-09-12.zip
+  SHA-256: 37c70db14d6fd2d8abba882a39559007e1d8e243998e86b9bbc4259ff5ae801a
+- Workspace: FEARVita_M29BA_WORKSPACE_LTOBJREF_FIX_2026-09-12.zip
+  SHA-256: 083748364213c1ec04b05d5fe442f2efbf1778c89f4f98167d7e942b77d03cf5
 - Both archives passed full ZIP integrity tests.
-- Neither archive contains a VPK or the private M29AX-derived asset payload.
-- The VPK remains a separate artifact.
+- Neither archive contains a VPK or private packaging assets.
+- Workspace contains M29AZ hardware logs, all three uploaded core dumps, symbolization notes and M29BA build logs.
 
-KNOWN RUNTIME CAVEATS TO VERIFY ON HARDWARE
-- FEAR SDK 1.08 property numbering vs. older public LithTech world data must be verified at real world instantiation.
-- Physics group application must be verified through the real object-creation path.
-- Physics vis-node falls back to model root where older runtime data lacks the newer explicit field.
-- Jupiter-EX sector IDs remain unavailable in the older public world runtime; no fake IDs are generated.
-- Newer light metadata is only partially represented by the old renderer/runtime.
+RECOVERY DELTA
+- Exact M29AZ -> M29BA code delta touches 4 code files.
+- Raw patch SHA-256: aab4e2ac6416f75d4a0c3823cbf8225adb03b920ed087feede4432bfa4a09bca
+- Stored as patches/recovered/M29BA_FROM_M29AZ_2026-09-12.patch.xz.b64.part00
+
+SELECTOR STARTUP SOUND
+- Launcher still resolves the retail SplashScreenSound from installed FEAR data and plays it once before game selection.
 
 NEXT STEP
-- Hardware-test the corrected M29AY VPK on a real Vita for FEAR, Extraction Point and Perseus Mandate and collect fresh per-campaign logs.
-- Do not claim M29AY hardware success until those logs exist.
+- Hardware-test M29BA. If another crash occurs, collect the per-campaign log and new psp2core and normalize it against the M29BA ELF preserved in the current workspace.
+- Do not claim M29BA hardware success until that test exists.
