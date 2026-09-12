@@ -1,0 +1,126 @@
+--- a/m29ay_src/project/CMakeLists.txt
++++ b/m29ay_src/project/CMakeLists.txt
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.09")
++  set(VITA_VERSION  "00.10")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
+--- a/m29ay_src/project/src/main.cpp
++++ b/m29ay_src/project/src/main.cpp
+@@ -532,7 +532,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.09 / M29BL; authentic local client + player handoff");
++      "FEARVita 0.10 / M29BM; connectionless local client null-safe handoff");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -637,13 +637,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.09 / M29BL; authentic local client + player handoff");
++      "FEARVita 0.10 / M29BM; connectionless local client null-safe handoff");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BL startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BM startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BL startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BM startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
+--- a/m29ay_lithtech/lithtech-master/runtime/server/src/serverde_impl.cpp
++++ b/m29ay_lithtech/lithtech-master/runtime/server/src/serverde_impl.cpp
+@@ -540,7 +540,11 @@
+ 
+ 	Client *pClient = (Client*)hClient;
+ 
+-	if (!pClient->m_ConnectionID->GetIPAddress(pAddr, pPort))
++	// FEARVita's authentic local server client is intentionally connectionless:
++	// it shares the in-process server instead of owning a CBaseConn.  LithTech
++	// already uses 0.0.0.0 as the special localhost address (e.g. BanIPMgr),
++	// so preserve that semantic instead of dereferencing a NULL connection.
++	if (!pClient->m_ConnectionID || !pClient->m_ConnectionID->GetIPAddress(pAddr, pPort))
+ 	{
+ 		pAddr[0] = 0;
+ 		pAddr[1] = 0;
+@@ -1108,6 +1112,8 @@
+ 		for (LTLink *pCurClient = pClientHead->m_pNext; pCurClient != pClientHead; pCurClient = pCurClient->m_pNext)
+ 		{
+ 			Client *pClient = (Client*)pCurClient->m_pData;
++			if (!pClient->m_ConnectionID)
++				continue;
+ 			uint8 nClientAddr[4];
+ 			uint16 nClientPort;
+ 			pClient->m_ConnectionID->GetIPAddress(nClientAddr, &nClientPort);
+--- a/m29ay_lithtech/lithtech-master/runtime/server/src/s_client.cpp
++++ b/m29ay_lithtech/lithtech-master/runtime/server/src/s_client.cpp
+@@ -259,7 +259,8 @@
+ Client::~Client( )
+ { 
+ 	// Free up everything.
+-	fts_Term(m_hFTServ);
++	if (m_hFTServ)
++		fts_Term(m_hFTServ);
+ 	m_hFTServ = NULL; 
+ 
+ 	LTLink *pCur;
+@@ -306,7 +307,10 @@
+ 
+ void sm_UpdateClientFileTransfer(Client *pClient) 
+ {
+-	fts_Update(pClient->m_hFTServ, g_pServerMgr->m_nTrueFrameTimeMS / 1000.0f);
++	// The FEARVita in-process local client deliberately has no packet/file
++	// transfer endpoint because it shares the exact server VFS.
++	if (pClient->m_hFTServ)
++		fts_Update(pClient->m_hFTServ, g_pServerMgr->m_nTrueFrameTimeMS / 1000.0f);
+ }
+ 
+ 
+@@ -1451,6 +1455,12 @@
+ 	if (pClient->m_State != CLIENT_INWORLD)
+ 		return;
+ 
++	// FEARVita routes local control/state messages in-process.  There is no
++	// packet-level CBaseConn to receive object-update packets, so do not run
++	// bandwidth/replication code that is meaningful only for network clients.
++	if ((pClient->m_ClientFlags & CFLAG_LOCAL) && !pClient->m_ConnectionID)
++		return;
++
+ 	// Init the update info
+ 	UpdateInfo updateInfo;
+ 	updateInfo.m_cPacket.Writeuint8(SMSG_UPDATE);
+--- a/m29ay_lithtech/lithtech-master/runtime/server/src/server_filemgr.cpp
++++ b/m29ay_lithtech/lithtech-master/runtime/server/src/server_filemgr.cpp
+@@ -398,7 +398,8 @@
+         for(pCur=pListHead->m_pNext; pCur != pListHead; pCur=pCur->m_pNext)
+         {
+             pClient = (Client*)pCur->m_pData;
+-            fts_AddFile(pClient->m_hFTServ, pFile->GetFilename(), pFile->m_FileSize, pFile->m_FileID, pFile->m_Flags);
++            if (pClient->m_hFTServ)
++                fts_AddFile(pClient->m_hFTServ, pFile->GetFilename(), pFile->m_FileSize, pFile->m_FileID, pFile->m_Flags);
+         }
+ 
+         return 2;
+--- a/m29ay_lithtech/lithtech-master/runtime/server/src/servermgr.cpp
++++ b/m29ay_lithtech/lithtech-master/runtime/server/src/servermgr.cpp
+@@ -324,7 +324,10 @@
+ 		{
+ 			// Disconnect them via the netmgr.  Note: This will eventually cause the client to be
+ 			// removed from the servermgr due to the disconnectnotify handling.
+-			g_pServerMgr->m_NetMgr.Disconnect(pClient->m_ConnectionID, DISCONNECTREASON_KICKED);
++			if (pClient->m_ConnectionID)
++				g_pServerMgr->m_NetMgr.Disconnect(pClient->m_ConnectionID, DISCONNECTREASON_KICKED);
++			else
++				sm_RemoveClient(pClient);
+ 		}
+ 		else
+ 		{
