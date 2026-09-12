@@ -1,0 +1,415 @@
+diff -ruN '--exclude=m29ay_build' m29bk_ws/m29ay_src/project/CMakeLists.txt m29bl_ws/m29ay_src/project/CMakeLists.txt
+--- m29bk_ws/m29ay_src/project/CMakeLists.txt	2026-09-12 15:31:47.000000000 +0000
++++ m29bl_ws/m29ay_src/project/CMakeLists.txt	2026-09-12 17:49:06.328449422 +0000
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.08")
++  set(VITA_VERSION  "00.09")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
+diff -ruN '--exclude=m29ay_build' m29bk_ws/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp m29bl_ws/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp
+--- m29bk_ws/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp	2026-09-12 10:37:25.000000000 +0000
++++ m29bl_ws/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp	2026-09-12 17:48:23.388936622 +0000
+@@ -16,6 +16,8 @@
+ #include "fearvita/frame_renderer.h"
+ #include "fearvita/runtime_diagnostics.h"
+ #include "fearvita_runtime_server_bridge.h"
++#include "GameClientShell.h"
++#include "MsgIDs.h"
+ 
+ #include <algorithm>
+ #include <chrono>
+@@ -52,6 +54,12 @@
+ bool g_inputEnabled = true;
+ bool g_localSessionConnected = false;
+ uint32 g_localSendCount = 0;
++struct VitaLocalObject;
++VitaLocalObject* g_localPlayerProxy = nullptr;
++bool g_clientWorldEntered = false;
++uint32 g_localServerMsgCount = 0;
++uint32 g_localServerMsgDropped = 0;
++void ResetLocalPlayerProxy();
+ 
+ ConsoleVar* AsConsole(HCONSOLEVAR h) {
+   return reinterpret_cast<ConsoleVar*>(h);
+@@ -84,7 +92,9 @@
+         std::string("start-game unsupported type=") + std::to_string(request->m_Type));
+     return LT_UNSUPPORTED;
+   }
+-  const LTRESULT server_prepare = FearVita_RuntimePrepareLocalServer(request->m_pGameInfo, request->m_GameInfoLen);
++  const LTRESULT server_prepare = FearVita_RuntimePrepareLocalServer(
++      request->m_pGameInfo, request->m_GameInfoLen,
++      request->m_pClientData, request->m_ClientDataLen);
+   if (server_prepare != LT_OK) {
+     fearvita::RuntimeDiagnostic("ingame-client",
+         std::string("start-game local-server-prepare failed result=") + std::to_string(server_prepare));
+@@ -92,6 +102,10 @@
+   }
+   g_localSessionConnected = true;
+   g_localSendCount = 0;
++  g_localServerMsgCount = 0;
++  g_localServerMsgDropped = 0;
++  g_clientWorldEntered = false;
++  ResetLocalPlayerProxy();
+   fearvita::RuntimeDiagnostic("ingame-client",
+       "start-game type=STARTGAME_NORMAL accepted local-server-prepared=1");
+   return LT_OK;
+@@ -101,6 +115,10 @@
+     fearvita::RuntimeDiagnostic("ingame-client", "disconnect local-session-shim");
+   g_localSessionConnected = false;
+   g_localSendCount = 0;
++  g_localServerMsgCount = 0;
++  g_localServerMsgDropped = 0;
++  g_clientWorldEntered = false;
++  ResetLocalPlayerProxy();
+ }
+ void ShutdownFn() { std::exit(0); }
+ 
+@@ -137,10 +155,11 @@
+ uint32 EndCounterFn(LTCounter*) { return 0; }
+ 
+ HLOCALOBJ GetClientObjectFn() {
+-  // During frontend/menu initialization there is no server-owned local player
+-  // object yet.  Retail code expects this query to be callable and simply
+-  // returns NULL until a world/client object exists.
+-  return nullptr;
++  // M29BL: once the authentic local server has created CPlayerObj, expose a
++  // client-side compatibility object as the local player handle.  Server
++  // LTObject pointers are deliberately not leaked into the custom Vita client
++  // object namespace.
++  return reinterpret_cast<HLOCALOBJ>(g_localPlayerProxy);
+ }
+ 
+ LTRESULT RegisterConsoleProgramFn(const char* name, ConsoleProgramFn fn) {
+@@ -363,6 +382,15 @@
+ };
+ 
+ std::unordered_set<VitaLocalObject*> g_localObjects;
++
++void ResetLocalPlayerProxy() {
++  if (!g_localPlayerProxy) return;
++  auto it = g_localObjects.find(g_localPlayerProxy);
++  if (it != g_localObjects.end()) g_localObjects.erase(it);
++  delete g_localPlayerProxy;
++  g_localPlayerProxy = nullptr;
++}
++
+ LTSurfaceBlend g_optimizedBlend = LTSURFACEBLEND_ALPHA;
+ HLTCOLOR g_optimizedColor{};
+ 
+@@ -678,15 +706,20 @@
+   LTRESULT EndQuery() override { return LT_OK; }
+   LTRESULT GetSConValueFloat(const char*, float& val) override { val = 0.0f; return LT_NOTFOUND; }
+   LTRESULT GetSConValueString(const char*, char* val, uint32 len) override { if (val && len) val[0] = 0; return LT_NOTFOUND; }
+-  LTRESULT SendToServer(ILTMessage_Read*, uint32 flags) override {
++  LTRESULT SendToServer(ILTMessage_Read* pMsg, uint32 flags) override {
+     if (!g_localSessionConnected) return LT_NOTCONNECTED;
+-    if (g_localSendCount < 12) {
+-      fearvita::RuntimeDiagnostic("ingame-client",
+-          std::string("send-to-server deferred local-session-shim flags=") + std::to_string(flags) +
++    if (!pMsg) return LT_INVALIDPARAMS;
++    pMsg->SeekTo(0);
++    const uint8 nMsgId = pMsg->Peekuint8();
++    if (g_localSendCount < 24) {
++      fearvita::RuntimeDiagnostic("local-handoff",
++          std::string("client-to-server msg=") + std::to_string((unsigned)nMsgId) +
++          " flags=" + std::to_string(flags) +
+           " count=" + std::to_string(g_localSendCount));
+     }
+     ++g_localSendCount;
+-    return LT_OK;
++    pMsg->SeekTo(0);
++    return FearVita_RuntimeSendLocalClientMessage(pMsg, flags);
+   }
+   LTRESULT GetServerIPAddress(uint8 addr[4], uint16* port) override { if (addr) std::memset(addr, 0, 4); if (port) *port = 0; return LT_NOTFOUND; }
+   LTRESULT ProcessAttachments(HOBJECT) override { return LT_OK; }
+@@ -722,3 +755,107 @@
+ 
+ define_interface(CVitaLTClient, ILTClient);
+ }  // namespace
++
++extern "C" void FearVita_ClientReceiveServerMessage(ILTMessage_Read* pMsg)
++{
++  if (!pMsg || !g_pGameClientShell)
++    return;
++
++  pMsg->SeekTo(0);
++  const uint8 nMsgId = pMsg->Peekuint8();
++
++  // M29BL intentionally bridges only messages whose payload is independent of
++  // the packet-level client object replication runtime.  In particular, do not
++  // hand server LTObject pointers to the Vita client; server-side message
++  // readers resolve object ids in the server object table.  The control/state
++  // messages below are primitive/database/string payloads and are sufficient
++  // for FEAR's genuine Loading -> InWorld -> player-state handoff.
++  bool bDeliver = false;
++  switch (nMsgId)
++  {
++    case MID_CLIENTCONNECTION:
++    case MID_SERVERGAMESTATE:
++    case MID_MAPLIST:
++    case MID_GAME_PAUSE:
++    case MID_SWITCHINGWORLDSSTATE:
++    case MID_SIMULATION_TIMER:
++    case MID_PLAYER_STATE_CHANGE:
++    case MID_PLAYER_LOADCLIENT:
++      bDeliver = true;
++      break;
++    default:
++      break;
++  }
++
++  if (!bDeliver)
++  {
++    if (g_localServerMsgDropped < 16)
++    {
++      fearvita::RuntimeDiagnostic("local-handoff",
++          std::string("server-to-client drop msg=") + std::to_string((unsigned)nMsgId) +
++          " count=" + std::to_string(g_localServerMsgDropped));
++    }
++    ++g_localServerMsgDropped;
++    pMsg->SeekTo(0);
++    return;
++  }
++
++  if (g_localServerMsgCount < 32)
++  {
++    std::string detail = std::string("server-to-client msg=") + std::to_string((unsigned)nMsgId);
++    if (nMsgId == MID_CLIENTCONNECTION)
++    {
++      pMsg->SeekTo(1);
++      detail += " connection-state=" + std::to_string((unsigned)pMsg->Peekuint8());
++    }
++    detail += " count=" + std::to_string(g_localServerMsgCount);
++    fearvita::RuntimeDiagnostic("local-handoff", detail);
++  }
++  ++g_localServerMsgCount;
++
++  pMsg->SeekTo(0);
++  g_pGameClientShell->OnMessage(pMsg);
++  pMsg->SeekTo(0);
++}
++
++extern "C" void FearVita_PumpLocalClientWorldHandoff()
++{
++  if (!g_localSessionConnected || g_clientWorldEntered || !g_pGameClientShell)
++    return;
++
++  if (!FearVita_RuntimeLocalClientEngineInWorld())
++    return;
++
++  const HOBJECT hServerPlayer = FearVita_RuntimeGetLocalServerPlayer();
++  if (!hServerPlayer)
++    return;
++
++  if (!g_localPlayerProxy)
++  {
++    g_localPlayerProxy = new (std::nothrow) VitaLocalObject;
++    if (!g_localPlayerProxy)
++    {
++      fearvita::RuntimeDiagnostic("local-handoff", "client-player-proxy-alloc-failed");
++      return;
++    }
++    g_localPlayerProxy->type = OT_MODEL;
++    g_localPlayerProxy->pos.Init(0.0f, 0.0f, 0.0f);
++    g_localPlayerProxy->scale.Init(1.0f, 1.0f, 1.0f);
++    g_localPlayerProxy->rotation = LTRotation(0.0f, 0.0f, 0.0f, 1.0f);
++    g_localObjects.insert(g_localPlayerProxy);
++  }
++
++  fearvita::RuntimeDiagnostic("local-handoff",
++      std::string("client-on-enter-world begin server-player=") +
++      std::to_string((uintptr_t)hServerPlayer) +
++      " proxy=" + std::to_string((uintptr_t)g_localPlayerProxy));
++
++  // This is the same IClientShell notification the stock client runtime emits
++  // after its engine client reaches CLIENT_INWORLD.  It sets m_bInWorld and
++  // lets the existing InterfaceMgr/ClientConnectionMgr send the real Loading
++  // acknowledgement and wait for the server's InWorld state.  No game state is
++  // forced here.
++  g_pGameClientShell->OnEnterWorld();
++  g_clientWorldEntered = true;
++  fearvita::RuntimeDiagnostic("local-handoff", "client-on-enter-world complete");
++}
+diff -ruN '--exclude=m29ay_build' m29bk_ws/m29ay_src/project/integration/lithtech/fearvita_menu_runtime_gate.cpp m29bl_ws/m29ay_src/project/integration/lithtech/fearvita_menu_runtime_gate.cpp
+--- m29bk_ws/m29ay_src/project/integration/lithtech/fearvita_menu_runtime_gate.cpp	2026-09-12 10:37:25.000000000 +0000
++++ m29bl_ws/m29ay_src/project/integration/lithtech/fearvita_menu_runtime_gate.cpp	2026-09-12 17:48:23.939624364 +0000
+@@ -126,6 +126,7 @@
+   if (trace) fearvita::RuntimeDiagnostic("retail-frame", "pre-ok frame=" + std::to_string(s_frame));
+   shell->Update();
+   FearVita_RuntimeUpdateLocalServer();
++  FearVita_PumpLocalClientWorldHandoff();
+   if (trace) fearvita::RuntimeDiagnostic("retail-frame", "update-ok frame=" + std::to_string(s_frame));
+   shell->PostUpdate();
+   if (trace) fearvita::RuntimeDiagnostic("retail-frame", "post-ok frame=" + std::to_string(s_frame));
+diff -ruN '--exclude=m29ay_build' m29bk_ws/m29ay_src/project/integration/lithtech/fearvita_runtime_server_bridge.h m29bl_ws/m29ay_src/project/integration/lithtech/fearvita_runtime_server_bridge.h
+--- m29bk_ws/m29ay_src/project/integration/lithtech/fearvita_runtime_server_bridge.h	2026-09-12 10:37:25.000000000 +0000
++++ m29bl_ws/m29ay_src/project/integration/lithtech/fearvita_runtime_server_bridge.h	2026-09-12 17:48:23.939464874 +0000
+@@ -2,10 +2,17 @@
+ 
+ #include "ltbasedefs.h"
+ 
++class ILTMessage_Read;
++
+ // Thin Vita bridge into the authentic LithTech local server runtime.  The
+ // implementation owns no gameplay state; it only performs the same server
+ // manager/bootstrap calls used by the original local-client path.
+-extern "C" LTRESULT FearVita_RuntimePrepareLocalServer(const void* game_info, uint32 game_info_len);
++extern "C" LTRESULT FearVita_RuntimePrepareLocalServer(const void* game_info, uint32 game_info_len,
++                                                        const void* client_data, uint32 client_data_len);
+ extern "C" LTRESULT FearVita_RuntimeStartLocalWorld(const char* world_name);
+ extern "C" void FearVita_RuntimeUpdateLocalServer();
+ extern "C" bool FearVita_RuntimeLocalServerReady();
++extern "C" LTRESULT FearVita_RuntimeSendLocalClientMessage(ILTMessage_Read* msg, uint32 flags);
++extern "C" bool FearVita_RuntimeLocalClientEngineInWorld();
++extern "C" HOBJECT FearVita_RuntimeGetLocalServerPlayer();
++extern "C" void FearVita_PumpLocalClientWorldHandoff();
+diff -ruN '--exclude=m29ay_build' m29bk_ws/m29ay_src/project/integration/lithtech/fearvita_runtime_server_platform_vita.cpp m29bl_ws/m29ay_src/project/integration/lithtech/fearvita_runtime_server_platform_vita.cpp
+--- m29bk_ws/m29ay_src/project/integration/lithtech/fearvita_runtime_server_platform_vita.cpp	2026-09-12 12:34:18.000000000 +0000
++++ m29bl_ws/m29ay_src/project/integration/lithtech/fearvita_runtime_server_platform_vita.cpp	2026-09-12 17:49:59.304257183 +0000
+@@ -116,13 +116,19 @@
+ // ---------------------------------------------------------------------------
+ #include "bdefs.h"
+ #include "servermgr.h"
++#include "s_client.h"
++#include "de_objects.h"
+ #include "iltserver.h"
++#include "iltmessage.h"
+ #include "systimer.h"
+ #include "fearvita/runtime_diagnostics.h"
+ 
+ namespace {
+ bool g_fearvita_server_ready = false;
+ bool g_fearvita_server_world_started = false;
++Client* g_fearvita_local_client = NULL;
++
++extern "C" LTRESULT FearVita_ServerDispatchClientMessage(HCLIENT hClient, ILTMessage_Read* pMsg);
+ 
+ void FearVita_ServerError(const char* stage, LTRESULT result)
+ {
+@@ -139,9 +145,10 @@
+     return g_fearvita_server_ready && g_pServerMgr != NULL;
+ }
+ 
+-extern "C" LTRESULT FearVita_RuntimePrepareLocalServer(const void* game_info, uint32 game_info_len)
++extern "C" LTRESULT FearVita_RuntimePrepareLocalServer(const void* game_info, uint32 game_info_len,
++                                                        const void* client_data, uint32 client_data_len)
+ {
+-    if (g_fearvita_server_ready && g_pServerMgr)
++    if (g_fearvita_server_ready && g_pServerMgr && g_fearvita_local_client)
+         return LT_OK;
+ 
+     fearvita::RuntimeDiagnostic("server-world", "prepare-enter");
+@@ -188,6 +195,32 @@
+     }
+     fearvita::RuntimeDiagnostic("server-world", "listen-local-ok");
+ 
++    // M29BL: create the authentic server-side local Client even though the Vita
++    // port does not use LithTech's packet-level client runtime.  Client::Init
++    // has a Vita headless-local path for a NULL CBaseConn which still registers
++    // with ObjectDLL/ServerConnectionMgr and therefore follows the real FEAR
++    // LoggedIn -> Loading -> Loaded -> InWorld state machine.
++    if (!g_fearvita_local_client) {
++        g_fearvita_local_client = sm_OnNewConnection(NULL, true);
++        if (!g_fearvita_local_client) {
++            fearvita::RuntimeDiagnostic("local-handoff", "server-client-create-failed");
++            return LT_ERROR;
++        }
++        if (client_data && client_data_len) {
++            LT_MEM_TRACK_ALLOC(g_fearvita_local_client->m_pClientData = new char[client_data_len], LT_MEM_TYPE_NETWORKING);
++            if (!g_fearvita_local_client->m_pClientData) {
++                fearvita::RuntimeDiagnostic("local-handoff", "server-client-data-alloc-failed");
++                return LT_OUTOFMEMORY;
++            }
++            memcpy(g_fearvita_local_client->m_pClientData, client_data, client_data_len);
++            g_fearvita_local_client->m_ClientDataLen = client_data_len;
++        }
++        fearvita::RuntimeDiagnostic("local-handoff",
++            std::string("server-client-ready id=") + std::to_string(g_fearvita_local_client->m_ClientID) +
++            " data-bytes=" + std::to_string(g_fearvita_local_client->m_ClientDataLen) +
++            " state=" + std::to_string(g_fearvita_local_client->m_State));
++    }
++
+     g_fearvita_server_ready = true;
+     return LT_OK;
+ }
+@@ -225,10 +258,47 @@
+     return LT_OK;
+ }
+ 
++extern "C" LTRESULT FearVita_RuntimeSendLocalClientMessage(ILTMessage_Read* msg, uint32 flags)
++{
++    (void)flags;
++    if (!g_fearvita_server_ready || !g_fearvita_local_client || !msg)
++        return LT_NOTCONNECTED;
++    msg->SeekTo(0);
++    return FearVita_ServerDispatchClientMessage((HCLIENT)g_fearvita_local_client, msg);
++}
++
++extern "C" bool FearVita_RuntimeLocalClientEngineInWorld()
++{
++    return g_fearvita_local_client &&
++           g_fearvita_local_client->m_State == CLIENT_INWORLD &&
++           g_fearvita_local_client->m_pObject != NULL;
++}
++
++extern "C" HOBJECT FearVita_RuntimeGetLocalServerPlayer()
++{
++    return (g_fearvita_local_client && g_fearvita_local_client->m_pObject)
++        ? (HOBJECT)g_fearvita_local_client->m_pObject : NULL;
++}
++
+ extern "C" void FearVita_RuntimeUpdateLocalServer()
+ {
+     if (!g_fearvita_server_ready || !g_fearvita_server_world_started || !g_pServerMgr)
+         return;
++
++    static int s_last_engine_client_state = -1;
++    static bool s_last_has_player = false;
++    if (g_fearvita_local_client) {
++        const int state = g_fearvita_local_client->m_State;
++        const bool has_player = g_fearvita_local_client->m_pObject != NULL;
++        if (state != s_last_engine_client_state || has_player != s_last_has_player) {
++            fearvita::RuntimeDiagnostic("local-handoff",
++                std::string("engine-client state=") + std::to_string(state) +
++                " player=" + (has_player ? "1" : "0"));
++            s_last_engine_client_state = state;
++            s_last_has_player = has_player;
++        }
++    }
++
+     if (!g_pServerMgr->Update(0, time_GetMSTime())) {
+         static bool once = false;
+         if (!once) {
+diff -ruN '--exclude=m29ay_build' m29bk_ws/m29ay_src/project/src/main.cpp m29bl_ws/m29ay_src/project/src/main.cpp
+--- m29bk_ws/m29ay_src/project/src/main.cpp	2026-09-12 15:31:47.000000000 +0000
++++ m29bl_ws/m29ay_src/project/src/main.cpp	2026-09-12 17:49:06.328299747 +0000
+@@ -532,7 +532,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.08 / M29BK; Win32 enum ABI + bounded NavMesh bootstrap");
++      "FEARVita 0.09 / M29BL; authentic local client + player handoff");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -637,13 +637,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.08 / M29BK; Win32 enum ABI + bounded NavMesh bootstrap");
++      "FEARVita 0.09 / M29BL; authentic local client + player handoff");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BK startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BL startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BK startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BL startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
