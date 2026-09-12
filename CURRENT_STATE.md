@@ -10,6 +10,6 @@ The M29BI core dump resolved that crash to `CSoundSet::GetRandomFile()`: Vita wa
 
 The temporary white GT4 loading-bar fallback has been removed. The working retail cyan `m_LoadProgress` bar is now the only loading bar. The M29BI textured-background DrawPrim-state fix remains.
 
-Known upcoming issue: the current hardware log reports many Jupiter EX `MODEL00P ... Invalid Header` model loads. They are not the M29BI crash source and are intentionally left for the next verified frontier rather than combined speculatively with the SoundSet fix.
+M29BJ also addresses the repeated `MODEL00P ... Invalid Header` messages without bypassing validation: the old model loader accepted only `.ltb` filenames and rejected F.E.A.R.'s `.Model00p` extension before reading its LTB header. `.Model00p` now enters the same existing header/version path as `.ltb`, so the next hardware run either loads those models or reveals the next genuine model-format incompatibility.
 
 For continuation, use GitHub branch **`m29bj-soundset-single-loading-bar`** and read `CURRENT_STATE_M29BJ.txt`, `M29BJ_PROGRESS_2026-09-12.md`, and `recovery/M29BJ_RECOVERY.md`.
