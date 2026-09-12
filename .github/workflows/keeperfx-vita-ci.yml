@@ -54,6 +54,7 @@ jobs:
           base64 -d ../ci/keeperfx-vita/v5_runtime.patch.gz.b64 | gzip -d > /tmp/keeperfx-vita-v5.patch
           patch -p1 < /tmp/keeperfx-vita-v5.patch
           python3 ../ci/keeperfx-vita/patch_v6_runtime.py
+          python3 ../ci/keeperfx-vita/patch_v6_compilefix.py
 
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
