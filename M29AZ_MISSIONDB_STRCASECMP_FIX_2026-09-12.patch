@@ -1,0 +1,69 @@
+--- a/m29ay_src/project/cmake/FEARGameModulesM15.cmake
++++ b/m29ay_src/project/cmake/FEARGameModulesM15.cmake
+@@ -447,6 +447,8 @@
+     "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../integration/lithtech/compat")
+   set_source_files_properties(
+     "${root}/runtime/kernel/src/sys/win/stringmgr.cpp"
++    PROPERTIES COMPILE_DEFINITIONS "__LINUX=1;FEARVITA_NO_MSVC_STRICMP_ALIASES=1")
++  set_source_files_properties(
+     "${root}/runtime/sound/src/sounddata.cpp"
+     PROPERTIES COMPILE_DEFINITIONS "__LINUX=1")
+   target_compile_options(fearvita_runtime_server_objects PRIVATE
+--- a/m29ay_src/project/integration/lithtech/compat/fearvita_msvc_compat.h
++++ b/m29ay_src/project/integration/lithtech/compat/fearvita_msvc_compat.h
+@@ -108,6 +108,7 @@
+ #define __fastcall
+ #endif
+ 
++#ifndef FEARVITA_NO_MSVC_STRICMP_ALIASES
+ #ifndef _stricmp
+ #define _stricmp strcasecmp
+ #endif
+@@ -119,6 +120,7 @@
+ #endif
+ #ifndef strnicmp
+ #define strnicmp strncasecmp
++#endif
+ #endif
+ #ifndef _snprintf
+ #define _snprintf snprintf
+--- a/m29ay_src/project/src/main.cpp
++++ b/m29ay_src/project/src/main.cpp
+@@ -531,7 +531,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AX; D-pad + touchscreen retail-menu navigation + German loading fallback");
++      "FEARVita 0.02 / M29AZ; MissionDB strcasecmp recursion fix + ObjectDLL runtime");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -636,7 +636,7 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.02 / M29AX; D-pad + touchscreen retail-menu navigation + German loading fallback");
++      "FEARVita 0.02 / M29AZ; MissionDB strcasecmp recursion fix + ObjectDLL runtime");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   FearVita_BinkSetCampaignTag(campaign_tag);
+--- a/m29ay_lithtech/lithtech-master/runtime/kernel/src/sys/win/stringmgr.cpp
++++ b/m29ay_lithtech/lithtech-master/runtime/kernel/src/sys/win/stringmgr.cpp
+@@ -1,3 +1,17 @@
++
++// FEARVita M29AZ: the global portable MSVC shim maps stricmp to strcasecmp.
++// This TU is also compiled with __LINUX, whose ltbasedefs.h defines an inline
++// stricmp wrapper.  Without undefining the alias here, that wrapper becomes
++// a recursive strcasecmp() definition and overflows the main thread stack
++// during MissionDB case-insensitive lookups.
++#if defined(PLATFORM_VITA)
++#ifdef stricmp
++#undef stricmp
++#endif
++#ifdef strnicmp
++#undef strnicmp
++#endif
++#endif
+ 
+ #include "bdefs.h"
+ #include "stringmgr.h"
