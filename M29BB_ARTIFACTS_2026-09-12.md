@@ -18,9 +18,10 @@ Build marker: `FEARVita 0.02 / M29BB; LTObjRef client/server ownership dispatch 
 
 ## Current backups
 - Source: `FEARVita_M29BB_SOURCE_OBJREF_DISPATCH_FIX_2026-09-12.zip`
-  - size: `46,284,190` bytes before final manifest refresh; final SHA below is authoritative
+  - Size: `46,285,074` bytes
   - SHA-256: `65a4c8c69576dc916c8ef7c6fdb27f939d2c48ff9806efc29ea18050dd53225f`
 - Workspace: `FEARVita_M29BB_WORKSPACE_OBJREF_DISPATCH_FIX_2026-09-12.zip`
+  - Size: `116,991,219` bytes
   - SHA-256: `7af19ca959f134ee7edb57b53cc3d69fd9ac12882d6dc15167940cd284685d93`
 - Both passed full `unzip -tq` integrity checks.
 - Both contain zero `.vpk`, `boot_art/`, `launcher_art/`, `video_cache/`, or private asset-root payload entries.
