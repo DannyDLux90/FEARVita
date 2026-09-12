@@ -1,127 +1,68 @@
-FEARVita M29AY — NEXT-CHAT CANONICAL STATE — 2026-09-11
+FEARVita M29AY — CURRENT CANONICAL STATE — 2026-09-12
 
-GOAL
-- Move F.E.A.R., Extraction Point and Perseus Mandate together from the accepted local StartGame handshake into the real ObjectDLL/server/world runtime.
-- Do not fake GS_PLAYING. Instantiate the real world/server path.
+STATUS
+- Branch: m29ay-objectdll-world-runtime
+- M29AX remains the last hardware-proven FEARVita build.
+- M29AY now has a complete ARM executable link, VELF, SELF and installable VPK, but is NOT hardware validated yet.
+- Do not fake GS_PLAYING; real ObjectDLL/server/world runtime remains the implementation principle.
 
-BASE / PINS
-- Last hardware-proven frontend baseline: M29AX.
-- Public LithTech pin: jsj2008/lithtech @ 0eab18289bed72879eddb648d3311075b108cf46.
-- F.E.A.R. SDK 1.08 reference: xfw5/Fear-SDK-1.08 @ 2fc3557b0037d5fe01ac607b907d4b8511b9e4b2.
-- GitHub branch: m29ay-objectdll-world-runtime.
-- ObjectDLL target: 533 retail Game_ServerShell translation units, _FINAL=1.
-- Excluded as non-retail/orphaned: AIGoalGotoCombat.cpp, MeleeWeaponModel.cpp.
+CORE BUILD
+- Retail ObjectDLL target: 533/533 ARM/Vita PASS, _FINAL=1.
+- Shared client/server block: PASS.
+- Expanded real LithTech runtime/server/world/model/collision block: PASS at current Runtime64 closure.
+- Full client now builds with _FINAL=1.
+- Full FEARVita ARM ELF link: PASS.
+  SHA-256: 7fa7a2ab6957bb46c7c98574f6e02ea79b2f8601c7ee26fb584eb6cde21a0b05
+- VELF: PASS.
+  SHA-256: 7614746c596072065680140138d586a6d8a2fa5141d297753b3004aa78438a37
+- SELF eboot.bin: PASS, 7,567,945 bytes.
+  SHA-256: 681aab35c2e7b801864f1dcfc67df0c523e33890d9a615927e8c4d17e7c72e95
 
-CAMPAIGN PARITY
-- Real Vita logs show FEAR/EP/PM all reaching retail frontend -> campaign data selected -> local StartGame accepted -> waiting for real ObjectDLL/server/world runtime.
-- One shared server/runtime implementation must be used for all three.
-- Campaign-specific differences should remain archive/database/localization overlays only.
+SELECTOR STARTUP SOUND
+- Launcher resolves the retail SplashScreenSound setting from the installed FEAR game database.
+- It plays exactly once immediately before the game-selection menu.
+- No retail audio file is committed or bundled for this feature.
 
-ADDON MISSION / LOADING SCREEN LOCALIZATION
-- German Vita fallback now covers fear/ep/pm for Worlds\\Release\\Intro.
-- Common labels: INTERVALL 01, EINFÜHRUNG.
-- Common hint: Tipp: SELECT öffnet die Missionsziele. Linker Stick: bewegen. Rechter Stick: umsehen.
-- Campaign-specific fallback briefing:
-  FEAR: F.E.A.R.: Einsatzdaten werden vorbereitet.
-  EP: Extraction Point: Einsatzdaten werden vorbereitet.
-  PM: Perseus Mandate: Einsatzdaten werden vorbereitet.
-- These are FEARVita-authored fallbacks, not claimed as official retail German strings.
+PACKAGING FIX — 2026-09-12
+- The first M29AY VPK contained only 12 files and was about 8.1 MiB because the restored source workspace did not contain the private M29AX test assets.
+- Missing groups were boot_art/, launcher_art/ and video_cache/.
+- This was a packaging regression, not a smaller executable.
+- CMake now supports FEARVITA_PRIVATE_ASSET_ROOT, a private app0-style packaging root. Public/source builds remain asset-free.
+- The ten private selector/loading/video assets were recovered from the user-provided M29AX VPK and verified byte-for-byte identical before reuse.
 
-ARM OBJECTDLL STATUS
-- PlayerObj.cpp: PASS on ARM/Vita.
-- GameServerShell.cpp: PASS on ARM/Vita.
-- Character.cpp / CharacterHitBox.cpp / CommandMgr.cpp: PASS.
-- DEditHook.cpp: PASS.
-- Door.cpp / DynamicSectorVolume.cpp: PASS.
-- GameStartPoint.cpp / GameStartPointMgr.cpp: PASS.
-- GameWorldEditImpl.cpp / GameWorldPackerImpl.cpp: PASS.
-- KeyFramer.cpp / KeyframeToRigidBody.cpp: PASS.
-- LightBase/Cube/Directional/Editor/Point/PointFill/Spot: PASS.
-- NavMarker / ObjectTemplateMgr / PickupItem / PlayerInventory / PlayerLeash / PlayerLure / PlayerNodeGoto: PASS.
-- FULL RETAIL OBJECTDLL TARGET: 533/533 ARM/Vita PASS, ninja rc=0.
-- Full FEARVita executable build is now the active frontier. FEAR LT_PT_COMMAND/LT_PT_STRINGID visibility in ltproperty.h is fixed for both client and server.
-- A later ClientShell error where compat/ltintersect.h referenced LTOBB without including ltobb.h is fixed; the full ClientShell rebuild proceeds beyond that point.
-- Full ARM executable link, VELF, SELF and installable M29AY VPK now PASS; hardware validation is still pending.
+CORRECTED INSTALLABLE TEST VPK
+- File: FEARVita_M29AY_0.02_OBJECTDLL_RUNTIME_SPLASH_FULL_2026-09-12.vpk
+- Size: 21,925,480 bytes
+- SHA-256: cb7c57bac4a33fb01b48d33d6f23d243cf321126c7fcbc2b34d5d7773c1a23d4
+- ZIP integrity: PASS
+- Entries: 22
+- TITLE_ID: FEAR00001
+- APP_VER: 00.02
+- Embedded eboot.bin is byte-identical to the verified M29AY SELF.
+- All ten private M29AX menu/launcher assets are byte-identical to the M29AX copies.
 
-IMPORTANT IMPLEMENTED COMPATIBILITY
-- FEAR class/property registration macros + command/string-id properties.
-- GenericProp/GetType/getters/setters; GenericPropList FEAR Get*/AddProp helpers.
-- IAggregate type-name constructor + GetType.
-- LTOBB, LTSphere, Point_Segment_DistSqr, OBB_Point, AABB_Point.
-- ILTModel keyframe count/node transform and GetPhysicsVisNode fallback.
-- ILTServer real GetClientObject and SetClientObject.
-- ObjectCreateStruct physics group + FEAR child-model mapping.
-- Server time helpers (game time and real time), HMODELANIM message IO, LTVector::Clamp.
-- FEAR object unguaranteed 32-bit payload wired end-to-end: LTObject field -> server packet -> client receive; PlayerObj uses it for compressed Pitch/Roll.
-- SFX save/load message IDs and GetObjectSFXMessage compatibility.
-- New FEAR OnObjectCreated(GenericPropList*, reason) path dispatched by server while preserving old callback compatibility.
-- GameSpy/content-transfer/UDP features are explicitly offline/unavailable for Vita SP rather than faked.
-- Sector ID lookup returns LT_NOTFOUND because the older public world runtime has no Jupiter-EX sector table; no fake sector IDs.
-- FLAG_DELAYCLIENTVISIBLE is intentionally a no-op on the old runtime because FEAR bit 8 collides with old FLAG_FULLPOSITIONRES.
-- ObjectTemplate scalar scale is serialized as x and restored uniformly to LTVector(s,s,s), preserving old runtime ABI.
-- FEAR/Jupiter light metadata missing from old renderer is compile-compatible; unsupported cosmetic fields are no-op/default, not gameplay state.
+M29AX COMPARISON
+- M29AX VPK size: 17,698,777 bytes
+- M29AX eboot.bin size: 3,050,929 bytes
+- M29AX eboot.bin SHA-256: 0c0583db1bac1b4710f990d8bb255e39ff1b98a52f455ecc97d00b99c7ef15bd
+- Corrected M29AY is larger because its Runtime64 SELF is ~4.52 MB larger while retaining the same ten private menu/launcher assets.
 
-KNOWN CAVEATS TO VERIFY AT REAL WORLD LOAD
-- FEAR SDK 1.08 property-type numbering differs from the older public LithTech snapshot. Compile adapters exist, but actual world-property decoding must be verified during real .dat instantiation.
-- ObjectCreateStruct physics group exists for source compatibility; ensure the real server object creation path applies it where needed.
-- Physics vis-node currently falls back to model root because old public model data lacks the newer explicit field.
-- Sector visibility optimization is unavailable until/if the old world runtime is extended with Jupiter-EX sector IDs.
-- New light metadata is only partially represented by the old runtime renderer.
+CURRENT BACKUPS
+- Source: FEARVita_M29AY_SOURCE_FULLASSETSFIX_2026-09-12.zip
+  SHA-256: 56e5274eb60aa9d366e4b8547fda4b4258bb16c4ee7d9b065f0d556c294ea34f
+- Workspace: FEARVita_M29AY_WORKSPACE_FULLASSETSFIX_2026-09-12.zip
+  SHA-256: f4163bc9da6a65e73774f56c8eb74f06b652855a340d2c0cb127ca7fbfcd622e
+- Both archives passed full ZIP integrity tests.
+- Neither archive contains a VPK or the private M29AX-derived asset payload.
+- The VPK remains a separate artifact.
 
-LOCAL WORKSPACE USED IN THIS CHAT
-- Project/overlay source export: /mnt/data/m29ay_src
-- Patched LithTech work tree: /mnt/data/m29ay_lithtech/lithtech-master
-- Vita build dir: /mnt/data/m29ay_build
-- VitaSDK: /mnt/data/vitasdk_m29ay
-- Latest handoff build log: /mnt/data/m29ay_handoff_build.log
+KNOWN RUNTIME CAVEATS TO VERIFY ON HARDWARE
+- FEAR SDK 1.08 property numbering vs. older public LithTech world data must be verified at real world instantiation.
+- Physics group application must be verified through the real object-creation path.
+- Physics vis-node falls back to model root where older runtime data lacks the newer explicit field.
+- Jupiter-EX sector IDs remain unavailable in the older public world runtime; no fake IDs are generated.
+- Newer light metadata is only partially represented by the old renderer/runtime.
 
-REPRODUCE
-export VITASDK=/path/to/vitasdk
-export PATH="$VITASDK/bin:$PATH"
-cmake -S project -B build-vita -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DFEARVITA_ENABLE_GAME_MODULES=ON \
-  -DFEARVITA_MENU_LINK_ONLY=OFF \
-  -DFEARVITA_LITHTECH_ROOT=/path/to/patched/lithtech
-ninja -C build-vita -j6 fearvita_fear_server_objects
-ninja -C build-vita -j6 FEARVita
-
-NEXT STEPS
-1. Read NEXT_CHAT_M29AY.md and latest full-build log/frontier.
-2. ObjectDLL is DONE at 533/533. Continue the full `FEARVita` target from its first ClientShell/shared/link error.
-3. Regenerate/update the canonical incremental M29AY patch if more source changes are needed.
-4. Add/finish a Vita runtime-server/world object target based on upstream runtime/server CMake source list, using Vita replacements instead of Windows/Linux sys files.
-5. Ensure full-game attach retains client/shared/LTGUI/ClientFX/support objects plus ObjectDLL/runtime-server objects.
-6. Replace project/integration/lithtech/fearvita_iltclient_vita.cpp StartGame local-session shim with the real local server StartupLocal/DoStartWorld path.
-7. Make GetClientObject on the client side reflect the real local server client object.
-8. Instantiate Worlds\\Release\\Intro through real server_filemgr VFS and CServerMgr::DoStartWorld/LoadWorld/LoadObjects.
-9. Verify world property decoding, physics group handling, Player object creation, and start-level messages.
-10. Install and hardware-test the new M29AY VPK on FEAR/EP/PM with fresh per-campaign logs; do not claim runtime success before those logs exist.
-
-DO NOT
-- Do not fake an ingame state transition.
-- Do not regress M29AW/M29AX gameplay/menu controls.
-- Do not advance FEAR only while leaving EP/PM on an older runtime path.
-- Do not claim hardware validation until a new VPK has been tested on a real Vita.
-
-PRE-VPK CHECKPOINT — 2026-09-12
-- Full FEARVita ARM ELF link: PASS, SHA-256 7fa7a2ab6957bb46c7c98574f6e02ea79b2f8601c7ee26fb584eb6cde21a0b05.
-- Vita VELF conversion: PASS, SHA-256 7614746c596072065680140138d586a6d8a2fa5141d297753b3004aa78438a37.
-- Vita SELF eboot.bin creation: PASS, SHA-256 681aab35c2e7b801864f1dcfc67df0c523e33890d9a615927e8c4d17e7c72e95.
-- VPK packaging was subsequently explicitly authorized and completed; see INSTALLABLE VPK CHECKPOINT below.
-- Expanded runtime/server/world/model/collision target is clean at the current 64-step closure.
-- Full FEAR client now builds with _FINAL=1, matching retail server/shared configuration.
-- M29AY remains NOT hardware validated; M29AX remains the last hardware-proven build.
-
-INSTALLABLE VPK CHECKPOINT — 2026-09-12
-- Full FEARVita ARM ELF link: PASS, SHA-256 7fa7a2ab6957bb46c7c98574f6e02ea79b2f8601c7ee26fb584eb6cde21a0b05.
-- VELF: PASS, SHA-256 7614746c596072065680140138d586a6d8a2fa5141d297753b3004aa78438a37.
-- SELF eboot.bin: PASS, SHA-256 681aab35c2e7b801864f1dcfc67df0c523e33890d9a615927e8c4d17e7c72e95.
-- Standalone test VPK: FEARVita_M29AY_0.02_OBJECTDLL_RUNTIME_SPLASH_2026-09-12.vpk
-- VPK SHA-256: 6fa6302c96c9f6ba0c977f441269ed861d5835b9b49831dc88339c818ce22672.
-- VPK ZIP integrity: PASS; 12 files; TITLE_ID=FEAR00001; APP_VER=00.02.
-- Embedded eboot.bin is byte-identical to the verified build SELF.
-- Retail audio/game assets are not bundled; SplashScreenSound is resolved from installed retail data.
-- The VPK is a TEST BUILD and is NOT hardware validated. M29AX remains the last hardware-proven FEARVita build until M29AY is tested on a real Vita.
-- The VPK must remain a separate artifact and must not be bundled inside Source/Workspace ZIP backups.
+NEXT STEP
+- Hardware-test the corrected M29AY VPK on a real Vita for FEAR, Extraction Point and Perseus Mandate and collect fresh per-campaign logs.
+- Do not claim M29AY hardware success until those logs exist.
