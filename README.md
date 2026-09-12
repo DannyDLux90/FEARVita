@@ -31,3 +31,6 @@ Start with `NEXT_CHAT_M29AY.md`, `CURRENT_STATE.md`, `CURRENT_STATE_M29AY.txt`, 
 ## User-owned video cache
 
 Converted movies are namespaced by campaign (`fear`, `ep`, `pm`). Public source/build artifacts do not ship converted retail movies or private campaign artwork.
+
+## Screenshots
+<img width="960" height="544" alt="grafik" src="https://github.com/user-attachments/assets/97160c2d-c08e-447f-a9ef-03dfba91868d" />
