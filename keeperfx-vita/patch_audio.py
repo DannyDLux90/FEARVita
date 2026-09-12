@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# KeeperFX Vita compatibility patch; branch-local CI helper.
 path = Path("src/audio/audio_vita.c")
 s = path.read_text(encoding="utf-8")
 
