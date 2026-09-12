@@ -1,0 +1,23 @@
+FEARVita 0.07 / M29BJ — 2026-09-12
+
+Hardware-proven M29BI frontier:
+- F.E.A.R. Intro World00p v113 parses all 347 BSPs.
+- 93 blind-data chunks are detected and 1,988 server objects begin real creation.
+- Retail loading progress reaches 70%; the cyan retail progress bar is visible and functional.
+- The M29BI run reaches at least object index 1151 before the next deterministic crash.
+
+M29BJ fixes:
+- Removed the duplicate white Vita GT4 fallback progress bar. Only the retail m_LoadProgress bar remains.
+- New M29BI core dump resolved to CSoundSet::GetRandomFile(). Vita had been excluded from the Win32/Linux database-backed sound-file selection implementation, so the non-void function fell through to a compiler UDF trap.
+- Enabled PLATFORM_VITA in both CSoundSet::GetRandomFile() and CSoundSet::GetRandomNotDirtyFile().
+- No speculative model-loader change in this milestone. MODEL00P Invalid Header messages remain visible in the hardware log and are a known upcoming compatibility frontier if object loading advances far enough.
+- Audio mixer/resampler is otherwise unchanged from M29BI for isolation.
+
+Build verification:
+- FEARVita ARM ELF linked successfully.
+- Both SoundSet functions contain real code; their previous UDF fall-through traps are gone.
+- Complete VPK contains 22 payload files / 35 ZIP entries and APP_VER 00.07.
+- Embedded eboot.bin is byte-identical to the built M29BJ eboot.
+- eboot SHA-256: d35ca4ef30211ec5c40f064febf1b1a34ba08a387586afa4c1636d82c2c57ff9
+- VPK SHA-256: c24cb6c166434f3b46fb0889b09a8f9c23a62b25a6c897078a4299c03e00f55e
+- M29BI->M29BJ patch SHA-256: 6c91af8c775c56d9feadb5c111f8fe6761d18a92aa93825df8fb71b3b6825801
