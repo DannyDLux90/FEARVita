@@ -51,6 +51,8 @@ jobs:
         run: |
           cp ../ci/keeperfx-vita/vita_bootstrap.hpp src/platform/vita_bootstrap.hpp
           python3 ../ci/keeperfx-vita/patch_bootstrap.py
+          base64 -d ../ci/keeperfx-vita/v5_runtime.patch.gz.b64 | gzip -d > /tmp/keeperfx-vita-v5.patch
+          patch -p1 < /tmp/keeperfx-vita-v5.patch
 
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
@@ -110,7 +112,7 @@ jobs:
       - name: Upload known-good Touch VPK
         uses: actions/upload-artifact@v4
         with:
-          name: keeperfx-vita-bootstrap-known-good-v4
+          name: keeperfx-vita-bootstrap-known-good-v5
           path: |
             keeperfx/out/build/vita-release/*.vpk
             keeperfx/out/build/vita-release/*.elf
