@@ -1,0 +1,359 @@
+--- a/lithtech-overlay/runtime/model/src/model.cpp
++++ b/lithtech-overlay/runtime/model/src/model.cpp
+@@ -655,7 +655,9 @@
+ 	{
+ 		pAnim = GetAnim(i);
+ 
+-		if(pAnim->GetModel() == this)
++		// A failed/partial model load may leave unused animation slots null.
++		// Never dereference those slots while unwinding the model.
++		if(pAnim && pAnim->GetModel() == this)
+ 		{
+ 			LDelete(GetAlloc(), pAnim);
+ 		}
+--- a/lithtech-overlay/runtime/model/src/model_load.cpp
++++ b/lithtech-overlay/runtime/model/src/model_load.cpp
+@@ -861,6 +861,7 @@
+ 	{
+ 		uint16 track1Size;
+ 		uint16 track2Size;
++		uint8 positionBytes; // 6 = compressed int16[3], 12 = float3. Determined by schema offsets.
+ 		std::vector<uint16> flags; // position, rotation for each node.
+ 	};
+ 
+@@ -962,6 +963,47 @@
+ 		rot = m;
+ 	}
+ 
++	static uint8 JexInferPositionBytes(const JexAnimSchema& schema)
++	{
++		// Jupiter EX encodes channel locations as offsets in one of two per-frame
++		// tracks.  The distance from a position channel to the following rotation
++		// channel reveals whether that schema stores position as int16[3] (6 bytes)
++		// or float3 (12 bytes).  This is schema-specific in real F.E.A.R. assets;
++		// the AnimInfo compressed-position word is not reliable as a global selector.
++		uint32 runningOffset = 0;
++		for(size_t i = 0; i < schema.flags.size(); ++i)
++		{
++			const uint16 flag = schema.flags[i];
++			if(flag == 0xFFFF)
++				continue;
++
++			const uint32 offset = static_cast<uint32>(flag & 0x7FFF);
++			if(offset < runningOffset)
++			{
++				// Offsets restart when the flag stream switches to the other track.
++				runningOffset = 0;
++			}
++			const uint32 delta = offset - runningOffset;
++			if(delta == 6 || delta == 12)
++				return static_cast<uint8>(delta);
++			runningOffset = offset;
++		}
++
++		// Schemas with no position samples at all do not consume position data.
++		bool hasPosition = false;
++		for(size_t i = 0; i + 1 < schema.flags.size(); i += 2)
++		{
++			if(schema.flags[i] != 0xFFFF) { hasPosition = true; break; }
++		}
++		if(!hasPosition)
++			return 12;
++
++		// Very small single-channel schemas are seen in tool-generated assets.
++		const uint32 total = static_cast<uint32>(schema.track1Size) + static_cast<uint32>(schema.track2Size);
++		if(total == 6) return 6;
++		return 0;
++	}
++
+ 	static bool JexResolveAnimDataOffset(const JexAnimInfo& info, const JexAnimSchema& schema,
+ 		uint32 rawFileOffset, uint32 rawSize, uint32 sequentialOffset, uint32& outOffset)
+ 	{
+@@ -1014,6 +1056,14 @@
+ 		outOffset = static_cast<uint32>(address);
+ 		return true;
+ 	}
++
++	static LTRESULT JexInvalidAt(JexReader& r, const char* pFilename, const char* pStage)
++	{
++		buffer256 msg("[model00p-fail] stage=%s pos=%u len=%u file=%s\n",
++			pStage ? pStage : "unknown", r.Pos(), r.len, pFilename ? pFilename : "<null>");
++		dsi_ConsolePrint(msg);
++		return LT_INVALIDFILE;
++	}
+ }
+ 
+ LTRESULT Model::LoadJupiterExPacked(ModelLoadRequest *pRequest, ILTStream &file, const char* pFilename)
+@@ -1083,6 +1133,20 @@
+ 		s.flags.resize(static_cast<size_t>(h.nodeCount) * 2);
+ 		for(uint32 j = 0; j < h.nodeCount * 2; ++j)
+ 			if(!r.Read(s.flags[j])) return LT_INVALIDFILE;
++		s.positionBytes = JexInferPositionBytes(s);
++		if(s.positionBytes != 6 && s.positionBytes != 12)
++		{
++			buffer256 msg("[model00p-fail] stage=schema-position-size schema=%u track1=%u track2=%u file=%s\n",
++				i, (uint32)s.track1Size, (uint32)s.track2Size, pFilename ? pFilename : "<null>");
++			dsi_ConsolePrint(msg);
++			return LT_INVALIDFILE;
++		}
++		if(tracePlayer)
++		{
++			buffer256 msg("[model00p-player] schema=%u track1=%u track2=%u pos-bytes=%u\n",
++				i, (uint32)s.track1Size, (uint32)s.track2Size, (uint32)s.positionBytes);
++			dsi_ConsolePrint(msg);
++		}
+ 	}
+ 
+ 	if(tracePlayer) { buffer256 msg("[model00p-player] schemas-ok pos=%u\n", r.Pos()); dsi_ConsolePrint(msg); }
+@@ -1155,15 +1219,25 @@
+ 	if(tracePlayer) { buffer256 msg("[model00p-player] children-ok count=%u pos=%u\n", childCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 
+ 	uint8 hasGeometry = 0;
+-	if(!r.Read(hasGeometry)) return LT_INVALIDFILE;
++	if(!r.Read(hasGeometry)) return JexInvalidAt(r, pFilename, "geometry-flag");
++	if(tracePlayer) { buffer256 msg("[model00p-player] geometry-flag=%u pos=%u\n", (uint32)hasGeometry, r.Pos()); dsi_ConsolePrint(msg); }
+ 
+ 	float physicsVisRadius = 0.0f;
+ 	std::vector<JexPieceDesc> pieces;
+ 	if(hasGeometry)
+ 	{
+ 		uint32 visNode = 0, shapeCount = 0;
+-		if(!r.Read(visNode) || !r.Read(physicsVisRadius) || !r.Read(shapeCount)) return LT_INVALIDFILE;
+-		if(shapeCount > 65536) return LT_INVALIDFILE;
++		if(!r.Read(visNode) || !r.Read(physicsVisRadius) || !r.Read(shapeCount))
++			return JexInvalidAt(r, pFilename, "physics-header-read");
++		if(shapeCount > 65536)
++			return JexInvalidAt(r, pFilename, "physics-shape-count");
++		if(h.physicsShapeCount != shapeCount)
++		{
++			buffer256 msg("[model00p-note] physics-shape-count stream=%u header=%u file=%s\n",
++				shapeCount, h.physicsShapeCount, pFilename ? pFilename : "<null>");
++			dsi_ConsolePrint(msg);
++		}
++		if(tracePlayer) { buffer256 msg("[model00p-player] physics-header visnode=%u radius=%.3f shapes=%u header-shapes=%u pos=%u\n", visNode, physicsVisRadius, shapeCount, h.physicsShapeCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 		for(uint32 i = 0; i < shapeCount; ++i)
+ 		{
+ 			uint8 shapeIndex = 0;
+@@ -1172,82 +1246,124 @@
+ 			uint32 collisionGroup=0, nodeIndex=0;
+ 			if(!r.Read(shapeIndex) || !JexReadVector(r, offset) || !JexReadRotation(r, orientation) ||
+ 			   !r.Read(cor) || !r.Read(friction) || !r.Read(collisionGroup) || !r.Read(nodeIndex) ||
+-			   !r.Read(mass) || !r.Read(density) || !r.Read(radius)) return LT_INVALIDFILE;
++			   !r.Read(mass) || !r.Read(density) || !r.Read(radius))
++				return JexInvalidAt(r, pFilename, "physics-shape-read");
++			if(nodeIndex >= h.nodeCount)
++			{
++				buffer256 msg("[model00p-fail] stage=physics-shape-node shape=%u node=%u nodes=%u file=%s\n", i, nodeIndex, h.nodeCount, pFilename ? pFilename : "<null>");
++				dsi_ConsolePrint(msg);
++				return LT_INVALIDFILE;
++			}
+ 			if(orientation.m_Quat[3] != 1.0f)
+ 			{
+-				if(!r.Skip(24)) return LT_INVALIDFILE;
++				if(!r.Skip(24)) return JexInvalidAt(r, pFilename, "physics-capsule-extra");
+ 			}
+ 		}
++		if(tracePlayer) { buffer256 msg("[model00p-player] shapes-ok count=%u pos=%u\n", shapeCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 
+ 		uint32 constraintCount = 0;
+-		if(!r.Read(constraintCount) || constraintCount > 65536) return LT_INVALIDFILE;
++		if(!r.Read(constraintCount) || constraintCount > 65536)
++			return JexInvalidAt(r, pFilename, "constraints-header");
++		const uint32 headerConstraintCount = h.stiffSpringConstraintCount + h.hingeConstraintCount +
++			h.limitedHingeConstraintCount + h.ragdollConstraintCount + h.wheelConstraintCount + h.prismaticConstraintCount;
++		if(tracePlayer) { buffer256 msg("[model00p-player] constraints-header count=%u header-sum=%u pos=%u\n", constraintCount, headerConstraintCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 		for(uint32 i = 0; i < constraintCount; ++i)
+ 		{
+ 			uint32 type=0, shapeIndex=0, unknown=0;
+-			if(!r.Read(type) || !r.Read(shapeIndex) || !r.Read(unknown)) return LT_INVALIDFILE;
++			if(!r.Read(type) || !r.Read(shapeIndex) || !r.Read(unknown))
++				return JexInvalidAt(r, pFilename, "constraint-record-header");
++			if(shapeIndex >= shapeCount)
++			{
++				buffer256 msg("[model00p-fail] stage=constraint-shape constraint=%u shape=%u shapes=%u type=%u file=%s\n", i, shapeIndex, shapeCount, type, pFilename ? pFilename : "<null>");
++				dsi_ConsolePrint(msg);
++				return LT_INVALIDFILE;
++			}
+ 			const uint32 bytesAfterHeader = (type == 3) ? (18 * 4 + 3 * 4) : (24 * 4 + 1 * 4);
+-			if(!r.Skip(bytesAfterHeader)) return LT_INVALIDFILE;
++			if(!r.Skip(bytesAfterHeader)) return JexInvalidAt(r, pFilename, "constraint-record-data");
+ 		}
++		if(tracePlayer) { buffer256 msg("[model00p-player] constraints-ok count=%u pos=%u\n", constraintCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 
+ 		uint32 physicsWeightSetCount = 0;
+-		if(!r.Read(physicsWeightSetCount) || physicsWeightSetCount > JEX_MAX_WEIGHTSETS) return LT_INVALIDFILE;
++		if(!r.Read(physicsWeightSetCount) || physicsWeightSetCount > JEX_MAX_WEIGHTSETS)
++			return JexInvalidAt(r, pFilename, "physics-weights-header");
++		if(h.physicsWeightCount != physicsWeightSetCount)
++		{
++			buffer256 msg("[model00p-note] physics-weight-count stream=%u header=%u file=%s\n", physicsWeightSetCount, h.physicsWeightCount, pFilename ? pFilename : "<null>");
++			dsi_ConsolePrint(msg);
++		}
+ 		for(uint32 i = 0; i < physicsWeightSetCount; ++i)
+ 		{
+ 			uint32 nameOffset = 0;
+-			if(!r.Read(nameOffset) || !JexStringAt(strings, nameOffset)) return LT_INVALIDFILE;
++			if(!r.Read(nameOffset) || !JexStringAt(strings, nameOffset)) return JexInvalidAt(r, pFilename, "physics-weight-name");
+ 			// Packed as byte + float + float with no alignment padding.
+-			if(!r.Skip(shapeCount * 9)) return LT_INVALIDFILE;
++			if(shapeCount > (0xFFFFFFFFu / 9u) || !r.Skip(shapeCount * 9)) return JexInvalidAt(r, pFilename, "physics-weight-data");
+ 		}
++		if(tracePlayer) { buffer256 msg("[model00p-player] physics-weights-ok count=%u pos=%u\n", physicsWeightSetCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 
+ 		uint32 lodGroupCount = 0;
+-		if(!r.Read(lodGroupCount) || lodGroupCount > MAX_PIECES_PER_MODEL) return LT_INVALIDFILE;
++		if(!r.Read(lodGroupCount) || lodGroupCount > MAX_PIECES_PER_MODEL) return JexInvalidAt(r, pFilename, "lod-groups-header");
++		if(h.pieceCount != lodGroupCount)
++		{
++			buffer256 msg("[model00p-note] lod-group-count stream=%u header-pieces=%u file=%s\n", lodGroupCount, h.pieceCount, pFilename ? pFilename : "<null>");
++			dsi_ConsolePrint(msg);
++		}
+ 		pieces.resize(lodGroupCount);
+ 		for(uint32 p = 0; p < lodGroupCount; ++p)
+ 		{
+ 			JexPieceDesc& piece = pieces[p];
+ 			uint32 lodCount = 0;
+ 			if(!r.Read(piece.nameOffset) || !r.Read(lodCount) || !JexStringAt(strings, piece.nameOffset) || lodCount > 1024)
+-				return LT_INVALIDFILE;
++				return JexInvalidAt(r, pFilename, "lod-group-record");
+ 			piece.lods.resize(lodCount);
+ 			for(uint32 l = 0; l < lodCount; ++l)
+ 			{
+ 				JexLodDesc& lod = piece.lods[l];
+ 				uint32 pieceIndexCount = 0;
+ 				if(!r.Read(lod.distance) || !r.Read(lod.textureIndex) || !r.Read(lod.translucent) ||
+-				   !r.Read(lod.castShadow) || !r.Read(pieceIndexCount) || pieceIndexCount > 65536) return LT_INVALIDFILE;
++				   !r.Read(lod.castShadow) || !r.Read(pieceIndexCount) || pieceIndexCount > 65536)
++					return JexInvalidAt(r, pFilename, "lod-record");
+ 				lod.pieceIndices.resize(pieceIndexCount);
+-				for(uint32 k = 0; k < pieceIndexCount; ++k) if(!r.Read(lod.pieceIndices[k])) return LT_INVALIDFILE;
++				for(uint32 k = 0; k < pieceIndexCount; ++k)
++					if(!r.Read(lod.pieceIndices[k])) return JexInvalidAt(r, pFilename, "lod-piece-index");
+ 			}
+ 		}
++		if(tracePlayer) { buffer256 msg("[model00p-player] lod-groups-ok count=%u pos=%u\n", lodGroupCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 
+ 		// LOD/mesh linkage block.
+ 		uint32 unk3=0, linkedPieceCount=0, unk5=0, unk6=0, linkedLodCount=0;
+ 		if(!r.Read(unk3) || !r.Read(linkedPieceCount) || !r.Read(unk5) || !r.Read(unk6) || !r.Read(linkedLodCount))
+-			return LT_INVALIDFILE;
++			return JexInvalidAt(r, pFilename, "mesh-linkage");
++		if(tracePlayer) { buffer256 msg("[model00p-player] mesh-link unk3=%u pieces=%u unk5=%u unk6=%u lods=%u pos=%u\n", unk3, linkedPieceCount, unk5, unk6, linkedLodCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 		if(linkedPieceCount == 0)
+ 		{
+ 			std::string externalMesh;
+-			if(!JexReadLTString(r, externalMesh)) return LT_INVALIDFILE;
++			if(!JexReadLTString(r, externalMesh)) return JexInvalidAt(r, pFilename, "external-mesh-name");
++			if(tracePlayer) { buffer256 msg("[model00p-player] external-mesh=%s pos=%u\n", externalMesh.c_str(), r.Pos()); dsi_ConsolePrint(msg); }
+ 		}
+ 
+-		// Mesh block.  Vita's server build uses CDIModelDrawable placeholders, but
+-		// parse and bounds-check the entire packed mesh section so corrupt/unsupported
+-		// Model00p data is never silently accepted.
++		// Mesh block. Vita's current drawable is headless on the server, but the
++		// packed data is still fully parsed and bounds-checked so this is a real
++		// Model00p format path rather than an object-creation bypass.
+ 		uint32 textureCount=0, meshDataLength=0, indexListLength=0;
+-		if(!r.Read(textureCount) || !r.Read(meshDataLength) || !r.Read(indexListLength)) return LT_INVALIDFILE;
+-		if(!r.Skip(meshDataLength) || !r.Skip(indexListLength)) return LT_INVALIDFILE;
++		if(!r.Read(textureCount) || !r.Read(meshDataLength) || !r.Read(indexListLength)) return JexInvalidAt(r, pFilename, "mesh-header");
++		if(tracePlayer) { buffer256 msg("[model00p-player] mesh-header textures=%u mesh-bytes=%u index-bytes=%u pos=%u\n", textureCount, meshDataLength, indexListLength, r.Pos()); dsi_ConsolePrint(msg); }
++		if(!r.Skip(meshDataLength)) return JexInvalidAt(r, pFilename, "mesh-data");
++		if(!r.Skip(indexListLength)) return JexInvalidAt(r, pFilename, "mesh-indices");
+ 
+ 		uint32 afterMeshUnknown=0, byteDataCount=0, meshInfoCount=0;
+-		if(!r.Read(afterMeshUnknown) || !r.Read(byteDataCount) || !r.Skip(byteDataCount) || !r.Read(meshInfoCount))
+-			return LT_INVALIDFILE;
+-		if(meshInfoCount > 65536) return LT_INVALIDFILE;
++		if(!r.Read(afterMeshUnknown) || !r.Read(byteDataCount)) return JexInvalidAt(r, pFilename, "after-mesh-header");
++		if(!r.Skip(byteDataCount) || !r.Read(meshInfoCount)) return JexInvalidAt(r, pFilename, "after-mesh-byte-list");
++		if(meshInfoCount > 65536) return JexInvalidAt(r, pFilename, "mesh-info-count");
++		if(tracePlayer) { buffer256 msg("[model00p-player] after-mesh unk=%u byte-list=%u mesh-info=%u pos=%u\n", afterMeshUnknown, byteDataCount, meshInfoCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 		for(uint32 i = 0; i < meshInfoCount; ++i)
+ 		{
+ 			uint32 fields[9];
+-			for(uint32 f = 0; f < 9; ++f) if(!r.Read(fields[f])) return LT_INVALIDFILE;
++			for(uint32 f = 0; f < 9; ++f)
++				if(!r.Read(fields[f])) return JexInvalidAt(r, pFilename, "mesh-info-record");
+ 			const uint32 influenceCount = fields[7];
+-			if(influenceCount > h.nodeCount || !r.Skip(influenceCount)) return LT_INVALIDFILE;
++			if(influenceCount > h.nodeCount || !r.Skip(influenceCount)) return JexInvalidAt(r, pFilename, "mesh-info-influences");
+ 		}
++		if(tracePlayer) { buffer256 msg("[model00p-player] mesh-info-ok count=%u pos=%u\n", meshInfoCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 	}
+ 
+ 	if(tracePlayer) { buffer256 msg("[model00p-player] packed-sections-ok geometry=%u pieces=%u pos=%u len=%u\n", (uint32)hasGeometry, (uint32)pieces.size(), r.Pos(), r.len); dsi_ConsolePrint(msg); }
+@@ -1393,7 +1509,7 @@
+ 			const uint16 posFlag = schema.flags[n*2];
+ 			const uint16 rotFlag = schema.flags[n*2+1];
+ 			animBytes64 += (posFlag == 0xFFFF) ? sizeof(LTVector) :
+-				static_cast<uint64>(info.keyframeCount) * (info.compressedPosition ? sizeof(int16)*3 : sizeof(LTVector));
++				static_cast<uint64>(info.keyframeCount) * static_cast<uint64>(schema.positionBytes);
+ 			animBytes64 += (rotFlag == 0xFFFF) ? sizeof(LTRotation) :
+ 				static_cast<uint64>(info.keyframeCount) * sizeof(int16)*4;
+ 		}
+@@ -1412,6 +1528,14 @@
+ 	LTBOOL animArrayOK;
+ 	LT_MEM_TRACK_ALLOC(animArrayOK = m_Anims.SetSize2(totalAnims, GetDefAlloc()), LT_MEM_TYPE_MODEL);
+ 	if(!animArrayOK) return LT_OUTOFMEMORY;
++	// SetSize2 is a raw container grow on this engine branch; partial-load cleanup
++	// must never observe garbage animation pointers in slots we have not built yet.
++	for(uint32 i = 0; i < totalAnims; ++i)
++	{
++		m_Anims[i].m_pAnim = NULL;
++		m_Anims[i].m_vDims.Init(128.0f, 16.0f, 16.0f);
++		m_Anims[i].m_vTranslation.Init();
++	}
+ 
+ 	uint32 sequentialAnimOffset = 0;
+ 	for(uint32 a = 0; a < animInfos.size(); ++a)
+@@ -1461,8 +1585,8 @@
+ 			}
+ 			else
+ 			{
+-				const uint32 itemSize = info.compressedPosition ? sizeof(int16)*3 : sizeof(LTVector);
+-				out.m_pPosChannel = info.compressedPosition ? JexPos16Channel::GetSingleton() : POSChannel::GetSingleton();
++				const uint32 itemSize = static_cast<uint32>(schema.positionBytes);
++				out.m_pPosChannel = (schema.positionBytes == 6) ? JexPos16Channel::GetSingleton() : POSChannel::GetSingleton();
+ 				out.m_pPosData = pAnimWrite;
+ 				for(uint32 k = 0; k < info.keyframeCount; ++k)
+ 				{
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -532,7 +532,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.11 / M29BN; Jupiter EX Model00p v33 runtime loader");
++      "FEARVita 0.12 / M29BO; Model00p v33 schema + cleanup hardening");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -637,13 +637,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.11 / M29BN; Jupiter EX Model00p v33 runtime loader");
++      "FEARVita 0.12 / M29BO; Model00p v33 schema + cleanup hardening");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BN startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BO startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BN startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BO startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.11")
++  set(VITA_VERSION  "00.12")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
