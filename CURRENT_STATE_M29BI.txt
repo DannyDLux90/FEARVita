@@ -1,0 +1,9 @@
+FEARVita 0.06 / M29BI — 2026-09-12
+
+- M29BH hardware proved Jupiter EX v113 parsing through all 347 BSPs, 60% loading progress, 93 blind-data chunks and the start of 1,988 real server objects.
+- New core dump crash resolved to GenericPropList::GetNumProps() with r0=NULL, called by CDestructibleModel::InitialUpdate.
+- Fixed SDK/FEAR compatibility collision where the newer OnObjectCreated(props, reason) default discarded props before FEAR's legacy message-id-1 / MID_INITIALUPDATE handler.
+- Added scoped Vita-only GenericPropList forwarding around sm_AddObjectToWorld; nested creation restores previous context.
+- Fixed white mission screen by explicitly restoring concrete DrawPrim texture/blend state around the GT4 progress fallback; SetRenderMode alone is a portable no-op.
+- Audio intentionally unchanged from M29BH/M29BG for test isolation.
+- Complete 00.06 VPK validated with 22 payload files; VPK SHA-256 7f82be761aa9efa80da4c9c7f6c28f878dd2a39fa5df0d8d00bf61bf4887487b.
