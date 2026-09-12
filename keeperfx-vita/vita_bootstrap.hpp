@@ -17,7 +17,7 @@ namespace kfx_vita_bootstrap {
 static bool g_apputil_initialized = false;
 static const char *kDataRoot = "ux0:data/keeperfx";
 static const char *kBundlePath = "app0:/game_data/keeperfx_data_bundle.zip";
-static const char *kMarkerPath = "ux0:data/keeperfx/.keeperfx_vita_data_v2";
+static const char *kMarkerPath = "ux0:data/keeperfx/.keeperfx_vita_data_v3";
 static const char *kLogPath = "ux0:data/keeperfx/vita_install.log";
 static void log_line(const char *msg) { FILE *f=fopen(kLogPath,"a"); if(f){fprintf(f,"%s\n",msg);fclose(f);} }
 static void ensure_data_root() { sceIoMkdir("ux0:data",0777); sceIoMkdir(kDataRoot,0777); }
@@ -38,9 +38,15 @@ static bool init_apputil() {
 }
 static void shutdown_apputil(){ if(g_apputil_initialized){sceAppUtilShutdown();g_apputil_initialized=false;} }
 static bool deeper_requested() {
-    if(!init_apputil())return false; SceAppUtilAppEventParam ep; memset(&ep,0,sizeof(ep)); int rc=sceAppUtilReceiveAppEvent(&ep);
-    if(rc<0||ep.type!=SCE_APPUTIL_APPEVENT_TYPE_LIVEAREA)return false; int needed=sceAppUtilAppEventParseLiveArea(&ep,NULL); if(needed<=0||needed>256)return false;
-    std::vector<char> b((size_t)needed+1,0); if(sceAppUtilAppEventParseLiveArea(&ep,b.data())<0)return false; return strcmp(b.data(),"-deeper")==0;
+    if(!init_apputil())return false;
+    SceAppUtilAppEventParam ep; memset(&ep,0,sizeof(ep));
+    int rc=sceAppUtilReceiveAppEvent(&ep);
+    if(rc<0||ep.type!=SCE_APPUTIL_APPEVENT_TYPE_LIVEAREA)return false;
+    char buffer[2048]; memset(buffer,0,sizeof(buffer));
+    rc=sceAppUtilAppEventParseLiveArea(&ep,buffer);
+    if(rc<0)return false;
+    buffer[sizeof(buffer)-1]='\0';
+    return strcmp(buffer,"-deeper")==0 || strstr(buffer,"-deeper")!=NULL;
 }
 static bool install_bundled_data() {
     ensure_data_root(); if(exists(kMarkerPath)){log_line("data marker present; skipping install");return true;} if(!exists(kBundlePath)){log_line("bundled data archive missing");return false;}
@@ -54,7 +60,7 @@ static bool install_bundled_data() {
             ++files_done; if((files_done&0x7F)==0)sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT); }
         rc=unzGoToNextFile(zf);
     }
-    delete[] buffer; unzClose(zf); if(ok&&rc==UNZ_END_OF_LIST_OF_FILE){FILE*m=fopen(kMarkerPath,"wb");if(!m){log_line("could not write data marker");return false;}fprintf(m,"KeeperFX Vita data v2\n");fclose(m);log_line("first-run data install complete");return true;} log_line("first-run data install failed; next start will resume");return false;
+    delete[] buffer; unzClose(zf); if(ok&&rc==UNZ_END_OF_LIST_OF_FILE){FILE*m=fopen(kMarkerPath,"wb");if(!m){log_line("could not write data marker");return false;}fprintf(m,"KeeperFX Vita data v3\n");fclose(m);log_line("first-run data install complete");return true;} log_line("first-run data install failed; next start will resume");return false;
 }
 static int run_kfxmain(int argc,char **argv,bool deeper){ if(!deeper)return kfxmain(argc,argv); std::vector<char*> args; for(int i=0;i<argc;++i)args.push_back(argv[i]); static char a0[]="keeperfx",flag[]="-campaign",campaign[]="deepdngn"; if(args.empty())args.push_back(a0); args.push_back(flag);args.push_back(campaign);args.push_back(NULL);log_line("LiveArea direct start: Deeper Dungeons (campaign deepdngn)");return kfxmain((int)args.size()-1,args.data()); }
 }
