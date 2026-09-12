@@ -71,18 +71,17 @@ jobs:
             echo "last_green_v4_run=34705910402"
             echo "last_green_v4_artifact=keeperfx-vita-bootstrap-known-good-v4"
           } > handoff/GIT-STATE.txt
-
-          cat > handoff/DEPENDENCIES.txt <<'EOF'
-This handoff intentionally omits the heavy contents of KeeperFX Git submodules.
-The root source tree and .gitmodules are included. To restore dependencies in a
-fresh Git checkout of cerwym/keeperfx at commit 466e0753e17cee876f2ace6fa6b1e17f3ad44b0d:
-
-  git submodule update --init --recursive
-
-The existing GitHub Actions workflow keeperfx-vita-known-good performs a
-recursive checkout automatically, so CI builds do not require vendoring those
-large dependency repositories into this handoff ZIP.
-EOF
+          printf '%s\n' \
+            'This handoff intentionally omits the heavy contents of KeeperFX Git submodules.' \
+            'The root source tree and .gitmodules are included.' \
+            '' \
+            'To restore dependencies in a fresh Git checkout of cerwym/keeperfx at commit:' \
+            '466e0753e17cee876f2ace6fa6b1e17f3ad44b0d' \
+            '' \
+            'Run: git submodule update --init --recursive' \
+            '' \
+            'The keeperfx-vita-known-good GitHub Actions workflow performs a recursive checkout automatically.' \
+            > handoff/DEPENDENCIES.txt
 
       - name: Remove Git metadata
         shell: bash
