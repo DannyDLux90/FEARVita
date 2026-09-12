@@ -14,6 +14,12 @@ jobs:
       options: --user root
 
     steps:
+      - name: Checkout Vita control helpers
+        uses: actions/checkout@v4
+        with:
+          ref: keeperfx-vita-ci
+          path: ci
+
       - name: Checkout KeeperFX known-good Vita commit
         uses: actions/checkout@v4
         with:
@@ -21,9 +27,24 @@ jobs:
           ref: 466e0753e17cee876f2ace6fa6b1e17f3ad44b0d
           fetch-depth: 1
           submodules: recursive
+          path: keeperfx
 
       - name: Mark git directory safe
         run: git config --global --add safe.directory '*'
+
+      - name: Install touch-first Vita controls
+        working-directory: keeperfx
+        run: |
+          cp ../ci/keeperfx-vita/input_vita_touch.c src/input/input_vita.c
+          cp ../ci/keeperfx-vita/WindowSystemVita_touch.cpp src/platform/WindowSystemVita.cpp
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/platform/WindowSystemVita.cpp')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('lbMouse.MMouseX', 'lbDisplay.MMouseX')
+          s = s.replace('lbMouse.MMouseY', 'lbDisplay.MMouseY')
+          p.write_text(s, encoding='utf-8')
+          PY
 
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
@@ -63,26 +84,28 @@ jobs:
         run: $VITASDK/bin/vdpm vitashark mathneon
 
       - name: Configure known-good Vita release
+        working-directory: keeperfx
         run: cmake --preset vita-release
 
-      - name: Build known-good VPK
+      - name: Build known-good Touch VPK
+        working-directory: keeperfx
         shell: bash
         run: |
           set +e
           cmake --build --preset vita-release > build.log 2>&1
           status=$?
-          tail -n 140 build.log
+          tail -n 160 build.log
           if [ "$status" -ne 0 ]; then
             echo '=== ERROR DIAGNOSTICS ==='
-            grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 260 || true
+            grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 300 || true
           fi
           exit "$status"
 
-      - name: Upload known-good VPK
+      - name: Upload known-good Touch VPK
         uses: actions/upload-artifact@v4
         with:
-          name: keeperfx-vita-known-good
+          name: keeperfx-vita-touch-known-good
           path: |
-            out/build/vita-release/*.vpk
-            out/build/vita-release/*.elf
+            keeperfx/out/build/vita-release/*.vpk
+            keeperfx/out/build/vita-release/*.elf
           if-no-files-found: error
