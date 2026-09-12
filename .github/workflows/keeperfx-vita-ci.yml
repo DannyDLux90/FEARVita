@@ -35,6 +35,22 @@ jobs:
         working-directory: keeperfx
         run: python3 ../ci/keeperfx-vita/patch_audio.py
 
+      - name: Fix renderer C forward declarations
+        working-directory: keeperfx
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/renderer/RendererManager.h')
+          s = p.read_text(encoding='utf-8')
+          needle = '#include <stdint.h>                /* int32_t */\n'
+          insert = needle + '\nstruct TbHugeSprite;\nstruct TbSprite;\n'
+          if needle not in s:
+              raise SystemExit('RendererManager.h include anchor not found')
+          if 'struct TbHugeSprite;\nstruct TbSprite;\n' not in s:
+              s = s.replace(needle, insert, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
         uses: actions/cache@v4
@@ -49,6 +65,7 @@ jobs:
             /usr/local/vitasdk/arm-vita-eabi/include/libavutil
             /usr/local/vitasdk/arm-vita-eabi/include/libswresample
           key: keeperfx-ffmpeg-vita-fish47-v3
+          save-always: true
 
       - name: Build FFmpeg-vita
         if: steps.cache-ffmpeg-vita.outputs.cache-hit != 'true'
