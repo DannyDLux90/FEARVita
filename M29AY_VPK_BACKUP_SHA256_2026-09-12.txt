@@ -1,0 +1,22 @@
+FEARVita M29AY final VPK checkpoint backups — 2026-09-12
+
+Standalone VPK (not bundled in ZIP backups):
+6fa6302c96c9f6ba0c977f441269ed861d5835b9b49831dc88339c818ce22672  FEARVita_M29AY_0.02_OBJECTDLL_RUNTIME_SPLASH_2026-09-12.vpk
+
+Current Source ZIP:
+7518e8bfdf83f1d8a7c57b95e8aea2408e5ab775223d9d78833932145d99debb  FEARVita_M29AY_SOURCE_VPK_2026-09-12.zip
+ZIP integrity: PASS
+Contains .vpk/.vpk.out: NO
+
+Current Workspace ZIP:
+33391830b05885cb11356ad8b52a95db3760c78dfbc328cc617f55c42901b9d6  FEARVita_M29AY_WORKSPACE_VPK_2026-09-12.zip
+ZIP integrity: PASS
+Contains .vpk/.vpk.out: NO
+
+Build artifacts:
+7fa7a2ab6957bb46c7c98574f6e02ea79b2f8601c7ee26fb584eb6cde21a0b05  FEARVita (ARM ELF)
+7614746c596072065680140138d586a6d8a2fa5141d297753b3004aa78438a37  FEARVita.velf
+681aab35c2e7b801864f1dcfc67df0c523e33890d9a615927e8c4d17e7c72e95  eboot.bin
+
+Validation status:
+M29AY VPK is installable/build-verified but NOT hardware validated. M29AX remains the last hardware-proven build until real Vita testing completes.
