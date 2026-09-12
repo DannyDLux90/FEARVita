@@ -17,7 +17,7 @@ jobs:
       - name: Checkout Vita helpers
         uses: actions/checkout@v4
         with:
-          ref: keeperfx-vita-known-good
+          ref: keeperfx-vita-ci
           path: ci
 
       - name: Checkout KeeperFX known-good Vita commit
