@@ -57,17 +57,48 @@ jobs:
           cp ../ci/keeperfx-vita/input_vita_touch.c src/input/input_vita.c
           cp ../ci/keeperfx-vita/WindowSystemVita_touch.cpp src/platform/WindowSystemVita.cpp
 
-      - name: Fix Vita renderer warning promoted to error
+      - name: Fix Vita renderer warnings promoted to errors
         working-directory: keeperfx
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           p = Path('src/engine_render.c')
           s = p.read_text(encoding='utf-8')
           needle = '    unsigned short flg_mem;\n'
+          if needle in s:
+              s = s.replace(needle, '', 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('src/renderer/RendMenuEntries.c')
+          s = p.read_text(encoding='utf-8')
+          replacements = {
+              '{ RMENU_WIDGET_SECTION, "LIGHTING" },': '{ RMENU_WIDGET_SECTION, "LIGHTING", NULL },',
+              '{ RMENU_WIDGET_SECTION, "FOG" },': '{ RMENU_WIDGET_SECTION, "FOG", NULL },',
+              '{ RMENU_WIDGET_SECTION, "TEXTURES" },': '{ RMENU_WIDGET_SECTION, "TEXTURES", NULL },',
+              '{ RMENU_WIDGET_SECTION, "TRANSPARENCY" },': '{ RMENU_WIDGET_SECTION, "TRANSPARENCY", NULL },',
+              '{ RMENU_WIDGET_SECTION, "GLOW" },': '{ RMENU_WIDGET_SECTION, "GLOW", NULL },',
+              '{ RMENU_WIDGET_SECTION, "SHADOWS" },': '{ RMENU_WIDGET_SECTION, "SHADOWS", NULL },',
+              '{ RMENU_WIDGET_LABEL, "── Creature Shadows ──" },': '{ RMENU_WIDGET_LABEL, "── Creature Shadows ──", NULL },',
+              '{ RMENU_WIDGET_SECTION, "CREATURES" },': '{ RMENU_WIDGET_SECTION, "CREATURES", NULL },',
+              '{ RMENU_WIDGET_SECTION, "LENS" },': '{ RMENU_WIDGET_SECTION, "LENS", NULL },',
+              '{ RMENU_WIDGET_SECTION, "VIEW" },': '{ RMENU_WIDGET_SECTION, "VIEW", NULL },',
+              '{ RMENU_WIDGET_SECTION, "DEBUG" },': '{ RMENU_WIDGET_SECTION, "DEBUG", NULL },',
+              '{ RMENU_WIDGET_SECTION, NULL },': '{ RMENU_WIDGET_SECTION, NULL, NULL },',
+          }
+          missing = [old for old in replacements if old not in s]
+          if missing:
+              raise SystemExit('RendMenuEntries.c anchors missing: ' + repr(missing))
+          for old, new in replacements.items():
+              s = s.replace(old, new)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('src/renderer/RendMenuOverlay.c')
+          s = p.read_text(encoding='utf-8')
+          needle = 'static void clamp_focus(void)'
           if needle not in s:
-              raise SystemExit('engine_render.c flg_mem anchor not found')
-          s = s.replace(needle, '', 1)
+              raise SystemExit('RendMenuOverlay.c clamp_focus anchor not found')
+          s = s.replace(needle, 'static void __attribute__((unused)) clamp_focus(void)', 1)
           p.write_text(s, encoding='utf-8')
           PY
 
