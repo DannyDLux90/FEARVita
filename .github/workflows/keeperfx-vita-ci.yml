@@ -1,55 +1,29 @@
-name: KeeperFX Vita CI
+name: KeeperFX Vita Known-Good CI
 
 on:
   push:
-    branches: [ "keeperfx-vita-ci" ]
+    branches: [ "keeperfx-vita-known-good" ]
   workflow_dispatch:
 
 jobs:
   build-vita:
-    name: Build KeeperFX PS Vita
+    name: Build known-good KeeperFX PS Vita
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/cerwym/build-vitasdk:latest
       options: --user root
 
     steps:
-      - name: Checkout CI helper branch
-        uses: actions/checkout@v4
-        with:
-          path: ci
-
-      - name: Checkout KeeperFX Vita port
+      - name: Checkout KeeperFX known-good Vita commit
         uses: actions/checkout@v4
         with:
           repository: cerwym/keeperfx
-          ref: cfab287c7a1a5f805ddaf35f98a89db023e0ef97
+          ref: 466e0753e17cee876f2ace6fa6b1e17f3ad44b0d
           fetch-depth: 1
           submodules: recursive
-          path: keeperfx
 
-      - name: Mark repositories safe
+      - name: Mark git directory safe
         run: git config --global --add safe.directory '*'
-
-      - name: Apply current sound API fix
-        working-directory: keeperfx
-        run: python3 ../ci/keeperfx-vita/patch_audio.py
-
-      - name: Fix renderer C forward declarations
-        working-directory: keeperfx
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('src/renderer/RendererManager.h')
-          s = p.read_text(encoding='utf-8')
-          needle = '#include <stdint.h>                /* int32_t */\n'
-          insert = needle + '\nstruct TbHugeSprite;\nstruct TbSprite;\n'
-          if needle not in s:
-              raise SystemExit('RendererManager.h include anchor not found')
-          if 'struct TbHugeSprite;\nstruct TbSprite;\n' not in s:
-              s = s.replace(needle, insert, 1)
-          p.write_text(s, encoding='utf-8')
-          PY
 
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
@@ -64,8 +38,7 @@ jobs:
             /usr/local/vitasdk/arm-vita-eabi/include/libavcodec
             /usr/local/vitasdk/arm-vita-eabi/include/libavutil
             /usr/local/vitasdk/arm-vita-eabi/include/libswresample
-          key: keeperfx-ffmpeg-vita-fish47-v3
-          save-always: true
+          key: ffmpeg-vita-fish47-v3
 
       - name: Build FFmpeg-vita
         if: steps.cache-ffmpeg-vita.outputs.cache-hit != 'true'
@@ -76,52 +49,40 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/FFmpeg/FFmpeg/n6.0.1/libavformat/smacker.c -o libavformat/smacker.c
           curl -fsSL https://raw.githubusercontent.com/FFmpeg/FFmpeg/n6.0.1/libavcodec/smacker.c -o libavcodec/smacker.c
           ./configure \
-            --target-os=vita \
-            --enable-vita \
-            --disable-shared \
-            --disable-programs \
-            --disable-doc \
-            --disable-debug \
-            --enable-static \
-            --enable-small \
-            --prefix=$VITASDK/arm-vita-eabi \
+            --target-os=vita --enable-vita --disable-shared --disable-programs --disable-doc \
+            --disable-debug --enable-static --enable-small --prefix="$VITASDK/arm-vita-eabi" \
             --disable-everything \
             --enable-decoder=aac_vita,mp3_vita,aac,adpcm_ima_qt,alac,flac,mp3,opus,pcm_s16le,pcm_s24le,pcm_s32le,vorbis,smacker,smackaud \
             --enable-demuxer=aac,mp3,mp4,m4a,matroska,flac,ogg,opus,wav,smacker \
-            --enable-muxer=null \
-            --enable-parser=aac,mpegaudio,vorbis,opus \
-            --enable-protocol=file \
-            --disable-network \
-            --disable-bzlib
+            --enable-muxer=null --enable-parser=aac,mpegaudio,vorbis,opus \
+            --enable-protocol=file --disable-network --disable-bzlib
           make -j$(nproc)
           make install
 
       - name: Install vitaGL dependencies
         run: $VITASDK/bin/vdpm vitashark mathneon
 
-      - name: Configure Vita build
-        working-directory: keeperfx
-        run: cmake --preset vita-reldebug
+      - name: Configure known-good Vita release
+        run: cmake --preset vita-release
 
-      - name: Build VPK
-        working-directory: keeperfx
+      - name: Build known-good VPK
         shell: bash
         run: |
           set +e
-          cmake --build --preset vita-reldebug > build.log 2>&1
+          cmake --build --preset vita-release > build.log 2>&1
           status=$?
-          echo '=== BUILD TAIL ==='
-          tail -n 120 build.log
-          echo '=== LINKER/ERROR DIAGNOSTICS ==='
-          grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 240 || true
-          echo '=== END DIAGNOSTICS ==='
+          tail -n 140 build.log
+          if [ "$status" -ne 0 ]; then
+            echo '=== ERROR DIAGNOSTICS ==='
+            grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 260 || true
+          fi
           exit "$status"
 
-      - name: Upload VPK and ELF
+      - name: Upload known-good VPK
         uses: actions/upload-artifact@v4
         with:
-          name: keeperfx-vita-playable
+          name: keeperfx-vita-known-good
           path: |
-            keeperfx/out/build/vita-reldebug/*.vpk
-            keeperfx/out/build/vita-reldebug/*.elf
+            out/build/vita-release/*.vpk
+            out/build/vita-release/*.elf
           if-no-files-found: error
