@@ -1,0 +1,9 @@
+FEARVita 0.05 / M29BH — 2026-09-12
+
+Current target: enter the real F.E.A.R. Intro world with authentic local server/runtime flow.
+
+M29BG hardware testing removed crashes but exposed the real format blocker: F.E.A.R. World00p is Jupiter EX world version 113, whereas the inherited open LithTech loader is version 85. M29BH adds a Vita-only v113 bootstrap for packed world collision BSPs, object records and blind data while preserving the original legacy path elsewhere.
+
+The loading bar remains driven by real loading callbacks; its GT4 fallback is moved above the help text. M29BH retains the M29BG polyphase 44.1->48 kHz audio path and its digital debug export rather than making another unverified sound tweak.
+
+Hardware status: compile/link/package verified, not yet hardware verified.
