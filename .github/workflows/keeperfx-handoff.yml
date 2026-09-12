@@ -1,0 +1,95 @@
+name: KeeperFX Vita Handoff Workspace
+
+on:
+  push:
+    branches: [ "keeperfx-vita-ci" ]
+    paths:
+      - ".github/workflows/keeperfx-handoff.yml"
+  workflow_dispatch:
+
+jobs:
+  handoff:
+    name: Assemble complete source handoff
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout current helper branch
+        uses: actions/checkout@v4
+        with:
+          ref: keeperfx-vita-ci
+          path: handoff/helper-branch
+          fetch-depth: 1
+
+      - name: Checkout known-good workflow branch
+        uses: actions/checkout@v4
+        with:
+          ref: keeperfx-vita-known-good
+          path: handoff/known-good-branch
+          fetch-depth: 1
+
+      - name: Checkout KeeperFX known-good Vita source
+        uses: actions/checkout@v4
+        with:
+          repository: cerwym/keeperfx
+          ref: 466e0753e17cee876f2ace6fa6b1e17f3ad44b0d
+          fetch-depth: 1
+          submodules: recursive
+          path: handoff/keeperfx-patched-source
+
+      - name: Apply current Vita patches to source snapshot
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd handoff/keeperfx-patched-source
+          cp ../helper-branch/keeperfx-vita/input_vita_touch.c src/input/input_vita.c
+          cp ../helper-branch/keeperfx-vita/WindowSystemVita_touch.cpp src/platform/WindowSystemVita.cpp
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/platform/WindowSystemVita.cpp')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('lbMouse.MMouseX', 'lbDisplay.MMouseX')
+          s = s.replace('lbMouse.MMouseY', 'lbDisplay.MMouseY')
+          p.write_text(s, encoding='utf-8')
+          PY
+          cp ../helper-branch/keeperfx-vita/vita_bootstrap.hpp src/platform/vita_bootstrap.hpp
+          python3 ../helper-branch/keeperfx-vita/patch_bootstrap.py
+
+      - name: Record exact Git state
+        shell: bash
+        run: |
+          set -euxo pipefail
+          {
+            echo "KeeperFX Vita handoff source snapshot"
+            echo "created_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "helper_branch=keeperfx-vita-ci"
+            echo "helper_sha=$(git -C handoff/helper-branch rev-parse HEAD)"
+            echo "known_good_branch=keeperfx-vita-known-good"
+            echo "known_good_sha=$(git -C handoff/known-good-branch rev-parse HEAD)"
+            echo "upstream_repo=cerwym/keeperfx"
+            echo "upstream_sha=$(git -C handoff/keeperfx-patched-source rev-parse HEAD)"
+            echo "last_green_v4_run=34705910402"
+            echo "last_green_v4_artifact=keeperfx-vita-bootstrap-known-good-v4"
+          } > handoff/GIT-STATE.txt
+
+      - name: Remove Git metadata but retain full source files
+        shell: bash
+        run: |
+          find handoff -name .git -type d -prune -exec rm -rf {} +
+
+      - name: Create source workspace archive
+        shell: bash
+        run: |
+          cd handoff
+          zip -6 -qr ../keeperfx-vita-handoff-source.zip .
+          cd ..
+          unzip -t keeperfx-vita-handoff-source.zip >/dev/null
+          sha256sum keeperfx-vita-handoff-source.zip > keeperfx-vita-handoff-source.zip.sha256
+          ls -lh keeperfx-vita-handoff-source.zip
+
+      - name: Upload handoff source
+        uses: actions/upload-artifact@v4
+        with:
+          name: keeperfx-vita-handoff-source
+          path: |
+            keeperfx-vita-handoff-source.zip
+            keeperfx-vita-handoff-source.zip.sha256
+          if-no-files-found: error
