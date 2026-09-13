@@ -1,0 +1,27 @@
+M29BW / 0.19 WIP snapshot — 2026-09-13
+
+GitHub branch: m29bw-local-player-model-sfx-bridge-wip
+Base branch: m29bt-model00p-variable-boundary
+Status: WIP / not hardware-tested / current m29ay_build artifacts are inherited M29BV cache and are NOT a valid 0.19 build.
+
+Local snapshot artifacts:
+FEARVita_M29BW_0.19_WIP_BUILDABLE_SOURCE_2026-09-13.zip
+SHA-256 e4050951e5a2b4ae30fbd7dc86f92975a19d473ac2273d0dd95ee0cc20ea6760
+
+FEARVita_M29BW_0.19_WIP_FULL_WORKSPACE_2026-09-13.zip
+SHA-256 73c7f0272122f0290a65f32ffe9af233b54a597ddcbfb02089ac56179f519911
+
+M29BW_0.19_WIP_CHECKPOINT_2026-09-13.md
+SHA-256 b54e072d634fcd4f06a5fa75e27c48bb5f27f32e80e3060911cf6cdaa213301a
+
+M29BW_FROM_M29BV_WIP_2026-09-13.patch
+SHA-256 703618d5b48d82a4e41c8c5ef099bb57f310f94f873271ba310b24329aaba5b7
+
+Current M29BW source differences relative to M29BV are limited to:
+- m29ay_src/project/CMakeLists.txt
+- m29ay_src/project/src/main.cpp
+- m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp
+- m29ay_src/project/integration/lithtech/fearvita_runtime_server_bridge.h
+- m29ay_src/project/integration/lithtech/fearvita_runtime_server_platform_vita.cpp
+
+The m29ay_lithtech/lithtech-master runtime tree is unchanged between M29BV and M29BW.
