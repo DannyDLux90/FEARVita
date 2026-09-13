@@ -1,0 +1,76 @@
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.14")
++  set(VITA_VERSION  "00.15")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -532,7 +532,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.14 / M29BQ; Model00p v33 global physics-shape layout solver");
++      "FEARVita 0.15 / M29BR; M29BQ Model00p solver + restored connectionless null-safety");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -637,13 +637,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.14 / M29BQ; Model00p v33 global physics-shape layout solver");
++      "FEARVita 0.15 / M29BR; M29BQ Model00p solver + restored connectionless null-safety");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BQ startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BR startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BQ startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BR startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
+--- a/project/CHANGELOG.md
++++ b/project/CHANGELOG.md
+@@ -1,3 +1,10 @@
++## 00.15 / M29BR — 2026-09-13
++
++- Restored the hardware-proven M29BM/M29BP connectionless-local server null-safety lost during the M29BQ source reconstruction.
++- Fixes the pre-world crash in `CLTServer::GetClientAddr` when FEAR's authentic in-process local client has no packet-level `CBaseConn`.
++- Restores null-safe local file-transfer, replication, endpoint scanning, and kick/remove handling.
++- Keeps the M29BQ global Model00p v33 physics-shape layout solver unchanged.
++
+ ## M17 — ARM-ClientShell-Grenze
+ 
+ - Vita ELF/SELF architecture verified as 32-bit ARMv7; io=64 uses 64-bit file offsets only.
+--- a/lithtech-overlay/runtime/server/src/serverde_impl.cpp
++++ b/lithtech-overlay/runtime/server/src/serverde_impl.cpp
+@@ -540,7 +540,11 @@
+ 
+ 	Client *pClient = (Client*)hClient;
+ 
+-	if (!pClient->m_ConnectionID->GetIPAddress(pAddr, pPort))
++	// FEARVita's authentic local server client is intentionally connectionless:
++	// it shares the in-process server instead of owning a CBaseConn.  LithTech
++	// already uses 0.0.0.0 as the special localhost address (e.g. BanIPMgr),
++	// so preserve that semantic instead of dereferencing a NULL connection.
++	if (!pClient->m_ConnectionID || !pClient->m_ConnectionID->GetIPAddress(pAddr, pPort))
+ 	{
+ 		pAddr[0] = 0;
+ 		pAddr[1] = 0;
+@@ -1108,6 +1112,8 @@
+ 		for (LTLink *pCurClient = pClientHead->m_pNext; pCurClient != pClientHead; pCurClient = pCurClient->m_pNext)
+ 		{
+ 			Client *pClient = (Client*)pCurClient->m_pData;
++			if (!pClient->m_ConnectionID)
++				continue;
+ 			uint8 nClientAddr[4];
+ 			uint16 nClientPort;
+ 			pClient->m_ConnectionID->GetIPAddress(nClientAddr, &nClientPort);
