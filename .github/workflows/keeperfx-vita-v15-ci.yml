@@ -1,0 +1,203 @@
+name: KeeperFX Vita v15 Polish CI
+
+on:
+  push:
+    branches: [ "keeperfx-vita-v15-build" ]
+  workflow_dispatch:
+
+jobs:
+  build-vita:
+    name: Build KeeperFX PS Vita v15 polish
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/cerwym/build-vitasdk:latest
+      options: --user root
+
+    steps:
+      - name: Checkout Vita helpers
+        uses: actions/checkout@v4
+        with:
+          ref: keeperfx-vita-v15-polish
+          path: ci
+
+      - name: Checkout KeeperFX known-good Vita commit
+        uses: actions/checkout@v4
+        with:
+          repository: cerwym/keeperfx
+          ref: 466e0753e17cee876f2ace6fa6b1e17f3ad44b0d
+          fetch-depth: 1
+          submodules: recursive
+          path: keeperfx
+
+      - name: Mark git directory safe
+        run: git config --global --add safe.directory '*'
+
+      - name: Install touch-first Vita controls
+        working-directory: keeperfx
+        run: |
+          cp ../ci/keeperfx-vita/input_vita_touch.c src/input/input_vita.c
+          cp ../ci/keeperfx-vita/WindowSystemVita_touch.cpp src/platform/WindowSystemVita.cpp
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/platform/WindowSystemVita.cpp')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('lbMouse.MMouseX', 'lbDisplay.MMouseX')
+          s = s.replace('lbMouse.MMouseY', 'lbDisplay.MMouseY')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Install Vita v5-v15 fixes
+        working-directory: keeperfx
+        run: |
+          cp ../ci/keeperfx-vita/vita_bootstrap.hpp src/platform/vita_bootstrap.hpp
+          python3 ../ci/keeperfx-vita/patch_bootstrap.py
+          base64 -d ../ci/keeperfx-vita/v5_runtime.patch.gz.b64 | gzip -d > /tmp/keeperfx-vita-v5.patch
+          patch -p1 < /tmp/keeperfx-vita-v5.patch
+          python3 ../ci/keeperfx-vita/patch_v6_runtime.py
+          python3 ../ci/keeperfx-vita/patch_v6_compilefix.py
+          sed -i 's/loader_draw_progress(unsigned long done, unsigned long total)/loader_draw_progress(unsigned long done, unsigned long total, const char *status)/g' ../ci/keeperfx-vita/patch_v7_runtime.py
+          python3 ../ci/keeperfx-vita/patch_v7_runtime.py
+          python3 ../ci/keeperfx-vita/patch_v7_compilefix.py
+          python3 ../ci/keeperfx-vita/patch_v8_preflight.py
+          python3 ../ci/keeperfx-vita/patch_v8b_safety.py
+          python3 ../ci/keeperfx-vita/patch_v8c_loader_shutdown.py
+          python3 ../ci/keeperfx-vita/patch_v8d_software_ui.py
+          python3 ../ci/keeperfx-vita/patch_v9_ux_controls.py
+          base64 -d ../ci/keeperfx-vita/patch_v10_hardware_input_audio_progress.py.gz.b64 | gzip -d > /tmp/patch_v10.py
+          python3 /tmp/patch_v10.py
+          sed -i '/static int16_t[[:space:]]*s_music_buf\[MUSIC_GRAIN \* 2\]; \/\* stereo \*\//d' src/audio/audio_vita.c
+
+          cp ../ci/keeperfx-vita/patch_v11_vita_controls.py /tmp/patch_v11.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/patch_v11.py')
+          s = p.read_text(encoding='utf-8')
+          old = "if include_anchor in s and '#include <math.h>\\n' not in s:\n    s = s.replace(include_anchor, '#include <math.h>\\n' + include_anchor, 1)\ns = s[:idx] + helper + s[idx:]"
+          new = "if include_anchor in s and '#include <math.h>\\n' not in s:\n    s = s.replace(include_anchor, '#include <math.h>\\n' + include_anchor, 1)\nidx = s.find(anchor)\nif idx < 0:\n    raise SystemExit('v11 patch: controller axis function moved unexpectedly')\ns = s[:idx] + helper + s[idx:]"
+          if old not in s:
+              raise SystemExit('v15 CI: v11 helper offset fix pattern missing')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+          python3 /tmp/patch_v11.py
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/input/input_vita.c')
+          s = p.read_text(encoding='utf-8')
+          anchor = 'static float vita_camera_axis(int raw)\n'
+          decls = ('static int touch_x_to_screen(int raw_x);\n'
+                   'static int touch_y_to_screen(int raw_y);\n\n')
+          if anchor not in s:
+              raise SystemExit('v15 CI: camera helper anchor missing')
+          if 'static int touch_x_to_screen(int raw_x);' not in s:
+              s = s.replace(anchor, decls + anchor, 1)
+          p.write_text(s, encoding='utf-8')
+          for name in ('src/front_input.c', 'src/front_landview.c'):
+              p = Path(name)
+              s = p.read_text(encoding='utf-8')
+              if '#include <math.h>' not in s:
+                  s = '#include <math.h>\n' + s
+              p.write_text(s, encoding='utf-8')
+          PY
+
+          python3 ../ci/keeperfx-vita/patch_v12_ingame_blockers_perf.py
+          python3 ../ci/keeperfx-vita/patch_v12b_affinity_order.py
+          python3 ../ci/keeperfx-vita/patch_v13_diagnostics.py
+          python3 ../ci/keeperfx-vita/patch_v14_local_packet_history.py
+          python3 ../ci/keeperfx-vita/patch_v15_polish.py
+
+          # V15 gates.
+          grep -q '\[V15 quit\]' src/bflib_network_stub.c
+          grep -q 'quit_game = 1' src/bflib_network_stub.c
+          grep -q 'SCE_SYSTEM_PARAM_ID_LANG' src/main.cpp
+          grep -q 'vita_apply_system_language' src/main.cpp
+          grep -q 'vita_rear_touch_enabled' src/config_settings.h
+          grep -q 'vita_rear_touch_enabled        = false' src/config_settings.c
+          grep -q 'frontend_vita_rear_touch' src/frontmenu_options_data.cpp
+          grep -q '\[V15 finish\]' src/front_input.c
+          grep -q 'SCE_CTRL_CROSS' src/input/input_vita.c
+          grep -q 'INPUT_MOUSE_BUTTON_LEFT' src/input/input_vita.c
+          grep -q 'SCE_CTRL_CIRCLE' src/input/input_vita.c
+          grep -q 'INPUT_MOUSE_BUTTON_RIGHT' src/input/input_vita.c
+
+          # Preserve V14 packet-history fix.
+          grep -q 'LOCAL_PACKET_HISTORY_SIZE 40' src/bflib_network_stub.c
+          grep -q 's_local_packet_history\[MAX_NET_USERS\]' src/bflib_network_stub.c
+          grep -q 'packet->turn != turn' src/bflib_network_stub.c
+
+          # Preserve V12/V13 behavior needed for hardware verification.
+          grep -q '\[V13 raw\]' src/input/input_vita.c
+          grep -q '\[V13 localcam\]' src/local_camera.c
+          grep -q 'reset_autopilot_buttons' src/gui_frontbtns.c
+          grep -q 'SCE_KERNEL_CPU_MASK_USER_0' src/platform/PlatformVita.cpp
+          grep -q 'SCE_KERNEL_CPU_MASK_USER_1' src/audio/audio_vita.c
+          grep -q 'SCE_KERNEL_CPU_MASK_USER_2' src/audio/audio_vita.c
+          grep -q 'vglSwapBuffers(GL_TRUE)' src/renderer/RendererVita.cpp
+          grep -q 'SCE_AUDIO_OUT_PORT_TYPE_BGM' src/audio/audio_vita.c
+          grep -q 'HAVE_DEBUGGER=0' build/cmake/modules/PlatformVita.cmake
+
+      - name: Cache FFmpeg-vita
+        id: cache-ffmpeg-vita
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/vitasdk/arm-vita-eabi/lib/libavformat.a
+            /usr/local/vitasdk/arm-vita-eabi/lib/libavcodec.a
+            /usr/local/vitasdk/arm-vita-eabi/lib/libavutil.a
+            /usr/local/vitasdk/arm-vita-eabi/lib/libswresample.a
+            /usr/local/vitasdk/arm-vita-eabi/include/libavformat
+            /usr/local/vitasdk/arm-vita-eabi/include/libavcodec
+            /usr/local/vitasdk/arm-vita-eabi/include/libavutil
+            /usr/local/vitasdk/arm-vita-eabi/include/libswresample
+          key: ffmpeg-vita-fish47-v3
+
+      - name: Build FFmpeg-vita
+        if: steps.cache-ffmpeg-vita.outputs.cache-hit != 'true'
+        run: |
+          rm -rf /tmp/FFmpeg-vita
+          git clone --depth 1 https://github.com/fish47/FFmpeg-vita.git /tmp/FFmpeg-vita
+          cd /tmp/FFmpeg-vita
+          curl -fsSL https://raw.githubusercontent.com/FFmpeg/FFmpeg/n6.0.1/libavformat/smacker.c -o libavformat/smacker.c
+          curl -fsSL https://raw.githubusercontent.com/FFmpeg/FFmpeg/n6.0.1/libavcodec/smacker.c -o libavcodec/smacker.c
+          ./configure \
+            --target-os=vita --enable-vita --disable-shared --disable-programs --disable-doc \
+            --disable-debug --enable-static --enable-small --prefix="$VITASDK/arm-vita-eabi" \
+            --disable-everything \
+            --enable-decoder=aac_vita,mp3_vita,aac,adpcm_ima_qt,alac,flac,mp3,opus,pcm_s16le,pcm_s24le,pcm_s32le,vorbis,smacker,smackaud \
+            --enable-demuxer=aac,mp3,mp4,m4a,matroska,flac,ogg,opus,wav,smacker \
+            --enable-muxer=null --enable-parser=aac,mpegaudio,vorbis,opus \
+            --enable-protocol=file --disable-network --disable-bzlib
+          make -j$(nproc)
+          make install
+
+      - name: Install vitaGL dependencies
+        run: $VITASDK/bin/vdpm vitashark mathneon
+
+      - name: Configure Vita release
+        working-directory: keeperfx
+        run: cmake --preset vita-release
+
+      - name: Build v15 VPK
+        working-directory: keeperfx
+        shell: bash
+        run: |
+          set +e
+          cmake --build --preset vita-release > build.log 2>&1
+          status=$?
+          tail -n 360 build.log
+          if [ "$status" -ne 0 ]; then
+            echo '=== ERROR DIAGNOSTICS ==='
+            grep -E -C 5 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 800 || true
+          fi
+          exit "$status"
+
+      - name: Upload v15 VPK and symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: keeperfx-vita-v15-polish
+          path: |
+            keeperfx/out/build/vita-release/*.vpk
+            keeperfx/out/build/vita-release/*.elf
+            keeperfx/out/build/vita-release/keeperfx
+            keeperfx/out/build/vita-release/build.log
+          if-no-files-found: error
