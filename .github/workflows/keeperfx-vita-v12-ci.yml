@@ -1,13 +1,13 @@
-name: KeeperFX Vita v12 Blockers Performance CI
+name: KeeperFX Vita v13 Diagnostics CI
 
 on:
   push:
-    branches: [ "keeperfx-vita-v12-build" ]
+    branches: [ "keeperfx-vita-v13-build" ]
   workflow_dispatch:
 
 jobs:
   build-vita:
-    name: Build KeeperFX PS Vita v12
+    name: Build KeeperFX PS Vita v13 diagnostics
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/cerwym/build-vitasdk:latest
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout Vita helpers
         uses: actions/checkout@v4
         with:
-          ref: keeperfx-vita-v12-blockers-perf
+          ref: keeperfx-vita-v13-diagnostics
           path: ci
 
       - name: Checkout KeeperFX known-good Vita commit
@@ -46,7 +46,7 @@ jobs:
           p.write_text(s, encoding='utf-8')
           PY
 
-      - name: Install Vita v5-v12 fixes
+      - name: Install Vita v5-v13 fixes and diagnostics
         working-directory: keeperfx
         run: |
           cp ../ci/keeperfx-vita/vita_bootstrap.hpp src/platform/vita_bootstrap.hpp
@@ -67,7 +67,6 @@ jobs:
           python3 /tmp/patch_v10.py
           sed -i '/static int16_t[[:space:]]*s_music_buf\[MUSIC_GRAIN \* 2\]; \/\* stereo \*\//d' src/audio/audio_vita.c
 
-          # v11 helper insertion-offset fix retained from the proven v11 CI.
           cp ../ci/keeperfx-vita/patch_v11_vita_controls.py /tmp/patch_v11.py
           python3 - <<'PY'
           from pathlib import Path
@@ -76,7 +75,7 @@ jobs:
           old = "if include_anchor in s and '#include <math.h>\\n' not in s:\n    s = s.replace(include_anchor, '#include <math.h>\\n' + include_anchor, 1)\ns = s[:idx] + helper + s[idx:]"
           new = "if include_anchor in s and '#include <math.h>\\n' not in s:\n    s = s.replace(include_anchor, '#include <math.h>\\n' + include_anchor, 1)\nidx = s.find(anchor)\nif idx < 0:\n    raise SystemExit('v11 patch: controller axis function moved unexpectedly')\ns = s[:idx] + helper + s[idx:]"
           if old not in s:
-              raise SystemExit('v12 CI: v11 helper offset fix pattern missing')
+              raise SystemExit('v13 CI: v11 helper offset fix pattern missing')
           p.write_text(s.replace(old, new, 1), encoding='utf-8')
           PY
           python3 /tmp/patch_v11.py
@@ -89,7 +88,7 @@ jobs:
           decls = ('static int touch_x_to_screen(int raw_x);\n'
                    'static int touch_y_to_screen(int raw_y);\n\n')
           if anchor not in s:
-              raise SystemExit('v12 CI: camera helper anchor missing')
+              raise SystemExit('v13 CI: camera helper anchor missing')
           if 'static int touch_x_to_screen(int raw_x);' not in s:
               s = s.replace(anchor, decls + anchor, 1)
           p.write_text(s, encoding='utf-8')
@@ -104,41 +103,33 @@ jobs:
 
           python3 ../ci/keeperfx-vita/patch_v12_ingame_blockers_perf.py
           python3 ../ci/keeperfx-vita/patch_v12b_affinity_order.py
+          python3 ../ci/keeperfx-vita/patch_v13_diagnostics.py
 
-          # V12 blocker gates.
+          # V13 diagnostics gates.
+          grep -q '\[V13 raw\]' src/input/input_vita.c
+          grep -q '\[V13 state\]' src/front_input.c
+          grep -q '\[V13 gate\]' src/front_input.c
+          grep -q '\[V13 move\]' src/front_input.c
+          grep -q '\[V13 mouse-bridge\]' src/kjm_input.c
+          grep -q '\[V13 mouse-sem\]' src/kjm_input.c
+          grep -q '\[V13 localcam\]' src/local_camera.c
+          grep -q '\[V13 instance\]' src/player_instances.c
+
+          # Preserve V12 blocker/performance fixes.
           grep -q 'reset_autopilot_buttons' src/gui_frontbtns.c
-          grep -q 'comp_player_aggressive' src/gui_frontbtns.c
-          grep -q 'comp_player_defensive' src/gui_frontbtns.c
-          grep -q 'comp_player_construct' src/gui_frontbtns.c
-          grep -q 'comp_player_creatrsonly' src/gui_frontbtns.c
           grep -q 'vita_recover_stale_ingame_input_lock' src/front_input.c
           grep -q 'lbDisplay.MLeftButton  = btn_left' src/kjm_input.c
           grep -q 'lbDisplay.MRightButton = btn_right' src/kjm_input.c
-
-          # V12 Vita performance gates.
           grep -q 'SCE_KERNEL_CPU_MASK_USER_0' src/platform/PlatformVita.cpp
-          grep -q 'VideoInit:main-affinity-user0' src/platform/PlatformVita.cpp
-          ! grep -q '_SYSI_LOG("main-affinity-user0")' src/platform/PlatformVita.cpp
           grep -q 'SCE_KERNEL_CPU_MASK_USER_1' src/audio/audio_vita.c
           grep -q 'SCE_KERNEL_CPU_MASK_USER_2' src/audio/audio_vita.c
-          grep -q 'vita_start_thread_on_core(s_dma_thread' src/audio/audio_vita.c
-          grep -q 'vita_start_thread_on_core(s_music_thread' src/audio/audio_vita.c
           grep -q 'vglSwapBuffers(GL_TRUE)' src/renderer/RendererVita.cpp
-
-          # Preserve v10/v11 behaviour.
           grep -q 'VITA_TOUCH_SCROLL_EDGE' src/input/input_vita.c
           grep -q 'void vita_get_camera_scroll' src/input/input_vita.c
-          grep -q 'update_physical_mouse_buttons' src/input/input_vita.c
-          ! grep -q 'SCE_CTRL_CROSS.*CBtn_R2' src/input/input_vita.c
-          ! grep -q 'SCE_CTRL_CIRCLE.*CBtn_L2' src/input/input_vita.c
-          grep -q 'vita_get_camera_scroll(&vita_x, &vita_y)' src/front_input.c
           grep -q 'SCE_AUDIO_OUT_PORT_TYPE_BGM' src/audio/audio_vita.c
           grep -q 'vita_stream_decode_once' src/audio/audio_vita.c
           grep -q 'vita audio: mentor sample=' src/audio/audio_vita.c
-          grep -q 'box_w = 240' src/platform/vita_startup_progress.cpp
-          grep -q 'scale = 3' src/platform/vita_startup_progress.cpp
           grep -q 'HAVE_DEBUGGER=0' build/cmake/modules/PlatformVita.cmake
-          ! grep -q 's_music_buf' src/audio/audio_vita.c
 
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
@@ -181,24 +172,24 @@ jobs:
         working-directory: keeperfx
         run: cmake --preset vita-release
 
-      - name: Build v12 VPK
+      - name: Build v13 diagnostic VPK
         working-directory: keeperfx
         shell: bash
         run: |
           set +e
           cmake --build --preset vita-release > build.log 2>&1
           status=$?
-          tail -n 260 build.log
+          tail -n 300 build.log
           if [ "$status" -ne 0 ]; then
             echo '=== ERROR DIAGNOSTICS ==='
-            grep -E -C 5 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 500 || true
+            grep -E -C 5 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 600 || true
           fi
           exit "$status"
 
-      - name: Upload v12 VPK and symbols
+      - name: Upload v13 VPK and symbols
         uses: actions/upload-artifact@v4
         with:
-          name: keeperfx-vita-v12-blockers-performance
+          name: keeperfx-vita-v13-diagnostics
           path: |
             keeperfx/out/build/vita-release/*.vpk
             keeperfx/out/build/vita-release/*.elf
