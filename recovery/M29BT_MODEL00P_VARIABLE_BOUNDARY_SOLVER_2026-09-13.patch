@@ -1,0 +1,242 @@
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.16")
++  set(VITA_VERSION  "00.17")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -532,7 +532,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.16 / M29BS; restored v113 world loader + global Model00p solver");
++      "FEARVita 0.17 / M29BT; v113 baseline + variable-boundary Model00p physics solver");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -637,13 +637,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.16 / M29BS; restored v113 world loader + global Model00p solver");
++      "FEARVita 0.17 / M29BT; v113 baseline + variable-boundary Model00p physics solver");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BS startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BT startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BS startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BT startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
+--- a/lithtech-overlay/runtime/model/src/model_load.cpp
++++ b/lithtech-overlay/runtime/model/src/model_load.cpp
+@@ -955,13 +955,19 @@
+ 		std::vector<uint32> extraBytes;
+ 		uint32 constraintPos;
+ 		uint32 constraintCount;
++		bool tailValidated;
+ 	};
+ 
+-	// A packed FEAR v33 physics shape always begins with the same 57-byte
+-	// base record.  Sphere records end there; capsule records append 24 bytes.
+-	// The first byte is deliberately kept opaque here.  Public reverse-
+-	// engineering called it ShapeIndex, but retail data proves it is not a
+-	// simple sequential record number, so it must not be used to infer stride.
++	// FEAR v33 physics-shape records share the 57-byte prefix below, but retail
++	// hardware proved that the bytes following that prefix are not limited to
++	// the old public 0/24-byte guess.  In PLAYER.MODEL00P, for example, the
++	// first record needs +24 bytes while the next record needs a different
++	// extension.  Treat the first byte as opaque and discover each packed
++	// record boundary structurally instead of assigning a guessed shape type.
++	// A candidate layout is only accepted when all shapes have node-valid
++	// prefixes and its final byte lands exactly on the header-declared
++	// constraint count.
++	static const uint32 JEX_MAX_PHYSICS_SHAPE_EXTRA = 256u;
+ 	static bool JexProbePhysicsShape(JexReader& r, uint32 pos,
+ 		uint32 nodeCount, JexPhysicsShapeProbe& out)
+ 	{
+@@ -1018,42 +1024,69 @@
+ 		std::vector<uint32>& currentExtra,
+ 		std::vector<JexPhysicsShapeLayout>& solutions)
+ 	{
+-		// More than a handful of structurally valid solutions would indicate
+-		// that the validation is not selective enough.  Stop before a corrupt
+-		// file can cause combinatorial work.
+-		if(solutions.size() >= 16u || shapeIndex >= shapeCount)
++		// A model with no physics shapes begins its constraint block immediately.
++		// The old 0/24 solver accidentally tried to probe a non-existent record.
++		if(shapeCount == 0u)
++		{
++			uint32 constraintCount = 0;
++			if(JexPeekU32(r, pos, constraintCount) && constraintCount == expectedConstraintCount)
++			{
++				JexPhysicsShapeLayout layout;
++				layout.constraintPos = pos;
++				layout.constraintCount = constraintCount;
++				layout.tailValidated = JexValidatePhysicsShapeTail(r, pos,
++					expectedConstraintCount, expectedPhysicsWeightSetCount);
++				solutions.push_back(layout);
++			}
++			return;
++		}
++
++		// Bound the search.  Node-index validation makes false next-record starts
++		// extremely rare, while this cap prevents malformed data from exploding
++		// into unbounded work.
++		if(solutions.size() >= 64u || shapeIndex >= shapeCount)
+ 			return;
+ 
+ 		JexPhysicsShapeProbe shape;
+ 		if(!JexProbePhysicsShape(r, pos, nodeCount, shape) || !shape.nodeValid)
+ 			return;
+ 
+-		const uint32 candidates[2] = { 0u, 24u };
+-		for(uint32 c = 0; c < 2; ++c)
++		const uint32 maxExtra = (shape.baseEnd <= r.len) ?
++			std::min<uint32>(JEX_MAX_PHYSICS_SHAPE_EXTRA, r.len - shape.baseEnd) : 0u;
++
++		for(uint32 extra = 0; extra <= maxExtra; extra += 4u)
+ 		{
+-			const uint32 extra = candidates[c];
+-			if(shape.baseEnd > r.len || extra > (r.len - shape.baseEnd))
+-				continue;
+ 			const uint32 nextPos = shape.baseEnd + extra;
+ 			currentExtra.push_back(extra);
+ 
+ 			if(shapeIndex + 1u == shapeCount)
+ 			{
++				// The aggregate constraint count is written immediately after the
++				// final shape.  Requiring this exact header-derived value is the
++				// primary boundary proof and does not depend on still-WIP public
++				// constraint record-size assumptions.
+ 				uint32 constraintCount = 0;
+-				if(JexPeekU32(r, nextPos, constraintCount) && constraintCount == expectedConstraintCount &&
+-				   JexValidatePhysicsShapeTail(r, nextPos, expectedConstraintCount, expectedPhysicsWeightSetCount))
++				if(JexPeekU32(r, nextPos, constraintCount) && constraintCount == expectedConstraintCount)
+ 				{
+ 					JexPhysicsShapeLayout layout;
+ 					layout.extraBytes = currentExtra;
+ 					layout.constraintPos = nextPos;
+ 					layout.constraintCount = constraintCount;
++					layout.tailValidated = JexValidatePhysicsShapeTail(r, nextPos,
++						expectedConstraintCount, expectedPhysicsWeightSetCount);
+ 					solutions.push_back(layout);
+ 				}
+ 			}
+ 			else
+ 			{
+-				JexFindPhysicsShapeLayouts(r, shapeIndex + 1u, shapeCount, nextPos, nodeCount,
+-					expectedConstraintCount, expectedPhysicsWeightSetCount, currentExtra, solutions);
++				// Probe before recursing so only structurally plausible next-record
++				// starts branch the search.
++				JexPhysicsShapeProbe nextShape;
++				if(JexProbePhysicsShape(r, nextPos, nodeCount, nextShape) && nextShape.nodeValid)
++				{
++					JexFindPhysicsShapeLayouts(r, shapeIndex + 1u, shapeCount, nextPos, nodeCount,
++						expectedConstraintCount, expectedPhysicsWeightSetCount, currentExtra, solutions);
++				}
+ 			}
+ 
+ 			currentExtra.pop_back();
+@@ -1063,16 +1096,16 @@
+ 	static void JexTracePhysicsShapeFrontier(JexReader& r, uint32 shapeCount,
+ 		uint32 startPos, uint32 nodeCount, const char* pFilename)
+ 	{
+-		// Diagnostic-only breadth expansion.  It does not choose a layout; it
+-		// records the first few structurally reachable records when no complete
+-		// path exists so the next retail sample exposes the exact boundary.
++		// Diagnostic-only breadth expansion using the same variable-boundary
++		// rules as the solver.  Log valid children plus the first record at each
++		// depth; never choose a layout here.
+ 		std::vector<uint32> positions;
+ 		positions.push_back(startPos);
+ 		uint32 emitted = 0;
+-		for(uint32 depth = 0; depth < shapeCount && !positions.empty() && emitted < 48u; ++depth)
++		for(uint32 depth = 0; depth < shapeCount && !positions.empty() && emitted < 64u; ++depth)
+ 		{
+ 			std::vector<uint32> next;
+-			for(uint32 i = 0; i < positions.size() && emitted < 48u; ++i)
++			for(uint32 i = 0; i < positions.size() && emitted < 64u; ++i)
+ 			{
+ 				JexPhysicsShapeProbe p;
+ 				const bool readable = JexProbePhysicsShape(r, positions[i], nodeCount, p);
+@@ -1083,10 +1116,27 @@
+ 					readable ? p.orientation.m_Quat[3] : 0.0f, pFilename ? pFilename : "<null>");
+ 				dsi_ConsolePrint(msg);
+ 				++emitted;
+-				if(readable && p.nodeValid)
++				if(!readable || !p.nodeValid || p.baseEnd > r.len)
++					continue;
++
++				const uint32 maxExtra = std::min<uint32>(JEX_MAX_PHYSICS_SHAPE_EXTRA, r.len - p.baseEnd);
++				for(uint32 extra = 0; extra <= maxExtra && next.size() < 32u; ++extra)
+ 				{
+-					if(p.baseEnd <= r.len) next.push_back(p.baseEnd);
+-					if(p.baseEnd <= r.len && 24u <= (r.len - p.baseEnd)) next.push_back(p.baseEnd + 24u);
++					const uint32 candidatePos = p.baseEnd + extra;
++					JexPhysicsShapeProbe q;
++					if(JexProbePhysicsShape(r, candidatePos, nodeCount, q) && q.nodeValid)
++					{
++						if(std::find(next.begin(), next.end(), candidatePos) == next.end())
++							next.push_back(candidatePos);
++						if(emitted < 64u)
++						{
++							buffer256 edge("[model00p-layout-edge] depth=%u from=%u extra=%u next=%u tag=%u node=%u file=%s\n",
++								depth, positions[i], extra, candidatePos, (uint32)q.shapeTag, q.nodeIndex,
++								pFilename ? pFilename : "<null>");
++							dsi_ConsolePrint(edge);
++							++emitted;
++						}
++					}
+ 				}
+ 			}
+ 			positions.swap(next);
+@@ -1428,22 +1478,34 @@
+ 			if(tracePlayer) JexTracePhysicsShapeFrontier(r, shapeCount, shapeBlockStart, h.nodeCount, pFilename);
+ 			return LT_INVALIDFILE;
+ 		}
+-		if(shapeLayouts.size() != 1u)
++
++		// If the exact constraint-count boundary produced more than one path,
++		// use the independently parsed constraint/weight tail only as a
++		// tie-breaker.  Never guess between multiple surviving layouts.
++		uint32 chosenLayout = 0xFFFFFFFFu;
++		uint32 strongLayouts = 0u;
++		for(uint32 i = 0; i < shapeLayouts.size(); ++i)
+ 		{
+-			buffer256 msg("[model00p-fail] stage=physics-shape-layout-ambiguous solutions=%u start=%u shapes=%u file=%s\n",
+-				(uint32)shapeLayouts.size(), shapeBlockStart, shapeCount, pFilename ? pFilename : "<null>");
++			if(shapeLayouts[i].tailValidated) { chosenLayout = i; ++strongLayouts; }
++		}
++		if(strongLayouts == 0u && shapeLayouts.size() == 1u) chosenLayout = 0u;
++		if((strongLayouts > 1u) || (strongLayouts == 0u && shapeLayouts.size() != 1u))
++		{
++			buffer256 msg("[model00p-fail] stage=physics-shape-layout-ambiguous solutions=%u strong=%u start=%u shapes=%u file=%s\n",
++				(uint32)shapeLayouts.size(), strongLayouts, shapeBlockStart, shapeCount, pFilename ? pFilename : "<null>");
+ 			dsi_ConsolePrint(msg);
++			if(tracePlayer) JexTracePhysicsShapeFrontier(r, shapeCount, shapeBlockStart, h.nodeCount, pFilename);
+ 			return LT_INVALIDFILE;
+ 		}
+ 
+-		const JexPhysicsShapeLayout& shapeLayout = shapeLayouts[0];
++		const JexPhysicsShapeLayout& shapeLayout = shapeLayouts[chosenLayout];
+ 		if(shapeLayout.extraBytes.size() != shapeCount || !r.Seek(shapeBlockStart))
+ 			return JexInvalidAt(r, pFilename, "physics-shape-layout-restore");
+ 
+ 		if(tracePlayer)
+ 		{
+-			buffer256 msg("[model00p-player] physics-layout solved shapes=%u constraint-pos=%u constraints=%u\n",
+-				shapeCount, shapeLayout.constraintPos, shapeLayout.constraintCount);
++			buffer256 msg("[model00p-player] physics-layout solved shapes=%u constraint-pos=%u constraints=%u tail=%u candidates=%u\n",
++				shapeCount, shapeLayout.constraintPos, shapeLayout.constraintCount, shapeLayout.tailValidated ? 1u : 0u, (uint32)shapeLayouts.size());
+ 			dsi_ConsolePrint(msg);
+ 		}
