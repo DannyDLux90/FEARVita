@@ -59,13 +59,21 @@ jobs:
           python3 ../ci/keeperfx-vita/patch_v7_runtime.py
           python3 ../ci/keeperfx-vita/patch_v7_compilefix.py
           python3 ../ci/keeperfx-vita/patch_v8_preflight.py
+          python3 ../ci/keeperfx-vita/patch_v8b_safety.py
+
+          # Static correctness gates for the real-hardware black-screen fixes.
           grep -q 'c.hasGPURenderPath        = 0' src/renderer/RendererVita.h
           grep -q 'c.wantsFullscreenViewport = 0' src/renderer/RendererVita.h
+          grep -q 'c.hasGPUSprites           = 0' src/renderer/RendererVita.h
           grep -q 'GPU sprite intercept disabled' src/renderer/RendererManager.cpp
           grep -q 'const TbScreenCoord vita_w = 640' src/bflib_video.c
           grep -q 'const TbScreenCoord vita_h = 480' src/bflib_video.c
           grep -q '.keeperfx_vita_data_v8' src/platform/vita_bootstrap.hpp
           grep -q 'void RendererVita::ClearScreen' src/renderer/RendererVita.cpp
+          grep -q 'sceDisplayWaitVblankStart' src/platform/vita_bootstrap.hpp
+          grep -A5 'TbScreenMode get_frontend_vidmode' src/vidmode.c | grep -q 'Lb_SCREEN_MODE_640_480_8'
+          grep -A5 'TbScreenMode get_movies_vidmode' src/vidmode.c | grep -q 'Lb_SCREEN_MODE_640_480_8'
+          grep -A5 'TbScreenMode get_failsafe_vidmode' src/vidmode.c | grep -q 'Lb_SCREEN_MODE_640_480_8'
 
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
