@@ -1,0 +1,157 @@
+--- M29CK/fearvita_runtime_interfaces_vita.cpp
++++ M29CL/fearvita_runtime_interfaces_vita.cpp
+@@ -30,6 +30,7 @@
+ #include <cstring>
+ #include <new>
+ #include <string>
++#include <unordered_map>
+ #include <unordered_set>
+ #include <vector>
+ 
+@@ -345,7 +346,31 @@
+ };
+ struct FakeDynamicTexture { uint32 refs = 1; uint32 width = 1; uint32 height = 1; };
+ std::unordered_set<FakeTexture*> g_textures;
++// Retail SharedTexture/texture-manager behavior shares file-backed textures.
++// The original Vita shim allocated a fresh decoded RGBA buffer (and therefore a
++// fresh GPU upload cache entry) for every TextureReference::Load call.  FEAR's
++// frontend repeatedly requests the same filenames, which exhausts/fragmentates
++// the Vita heap before ScreenPostload.  Key by normalized VFS path and refcount
++// the existing handle instead.
++std::unordered_map<std::string, FakeTexture*> g_textureByName;
+ std::unordered_set<FakeDynamicTexture*> g_dynamicTextures;
++
++std::string NormalizeTextureKey(const char* filename) {
++  std::string key = filename ? filename : "";
++  for (char& c : key) {
++    if (c == '/') c = '\\';
++    if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
++  }
++  return key;
++}
++
++std::size_t ActiveTextureRgbaBytes() {
++  std::size_t total = 0;
++  for (const FakeTexture* t : g_textures) {
++    if (t) total += t->rgba.size();
++  }
++  return total;
++}
+ 
+ std::uint16_t ReadLe16(const std::uint8_t* p) {
+   return static_cast<std::uint16_t>(p[0]) |
+@@ -715,12 +740,71 @@
+   LTRESULT CreateTextureFromFile(HTEXTURE& out, const char* filename) override {
+     out = nullptr;
+     if (!filename || !*filename || !FearVita_VfsHasFile(filename)) return LT_MISSINGFILE;
++
++    std::string cacheKey;
++    try {
++      cacheKey = NormalizeTextureKey(filename);
++      auto cached = g_textureByName.find(cacheKey);
++      if (cached != g_textureByName.end() && cached->second && g_textures.count(cached->second)) {
++        ++cached->second->refs;
++        out = reinterpret_cast<HTEXTURE>(cached->second);
++        static unsigned cache_hit_logs = 0;
++        if (cache_hit_logs++ < 48u) {
++          fearvita::RuntimeDiagnostic("texture-cache",
++              std::string("hit name=") + filename + " refs=" + std::to_string(cached->second->refs));
++        }
++        return LT_OK;
++      }
++    } catch (const std::bad_alloc&) {
++      cacheKey.clear();
++      fearvita::RuntimeDiagnostic("texture-cache", "key-oom; continuing uncached");
++    }
++
+     FakeTexture* t = new (std::nothrow) FakeTexture;
+-    if (!t) return LT_ERROR;
+-    t->name = filename;
++    if (!t) {
++      fearvita::RuntimeDiagnostic("texture-load", std::string("oom-object name=") + filename);
++      return LT_ERROR;
++    }
++
++    try {
++      t->name = filename;
++    } catch (const std::bad_alloc&) {
++      delete t;
++      fearvita::RuntimeDiagnostic("texture-load", std::string("oom-name name=") + filename);
++      return LT_ERROR;
++    }
+ 
+     std::string decode_error;
+-    if (!DecodeTextureTopMip(filename, t, &decode_error)) {
++    bool decoded = false;
++    try {
++      decoded = DecodeTextureTopMip(filename, t, &decode_error);
++    } catch (const std::bad_alloc&) {
++      const std::size_t beforeBytes = ActiveTextureRgbaBytes();
++      t->rgba.clear();
++      t->width = t->height = 1;
++      t->bpp_ident = 3;
++      t->decoded = true;
++      try {
++        t->rgba.assign({0, 0, 0, 0});
++        decoded = true;
++        fearvita::RuntimeDiagnostic("texture-load",
++            std::string("oom-fallback name=") + filename +
++            " active-rgba=" + std::to_string(beforeBytes) +
++            " textures=" + std::to_string(g_textures.size()));
++      } catch (const std::bad_alloc&) {
++        delete t;
++        fearvita::RuntimeDiagnostic("texture-load", std::string("oom-fallback-failed name=") + filename);
++        return LT_ERROR;
++      }
++    }
++
++    if (!decoded) {
+       static unsigned failure_logs = 0;
+       if (failure_logs++ < 96u) {
+         fearvita::RuntimeDiagnostic("texture-load",
+@@ -731,10 +815,32 @@
+       t->width = t->height = 1;
+       t->decoded = true;
+-      t->rgba.assign({0, 0, 0, 0});
+-    }
+-
+-    g_textures.insert(t);
++      try {
++        t->rgba.assign({0, 0, 0, 0});
++      } catch (const std::bad_alloc&) {
++        delete t;
++        fearvita::RuntimeDiagnostic("texture-load", std::string("fallback-oom name=") + filename);
++        return LT_ERROR;
++      }
++    }
++
++    try {
++      g_textures.insert(t);
++    } catch (const std::bad_alloc&) {
++      delete t;
++      fearvita::RuntimeDiagnostic("texture-load", std::string("registry-oom name=") + filename);
++      return LT_ERROR;
++    }
++
++    if (!cacheKey.empty()) {
++      try {
++        g_textureByName.emplace(cacheKey, t);
++      } catch (const std::bad_alloc&) {
++        fearvita::RuntimeDiagnostic("texture-cache", std::string("insert-oom name=") + filename);
++      }
++    }
++
+     InstallTextureResolver();
+     out = reinterpret_cast<HTEXTURE>(t);
+ 
+@@ -762,6 +868,10 @@
+     if (!t || !g_textures.count(t)) return LT_ERROR;
+     if (t->refs > 1) { --t->refs; return LT_OK; }
+     FearVita_DrawPrimInvalidateTexture(reinterpret_cast<std::uintptr_t>(t));
++    for (auto it = g_textureByName.begin(); it != g_textureByName.end(); ) {
++      if (it->second == t) it = g_textureByName.erase(it);
++      else ++it;
++    }
+     g_textures.erase(t); delete t; return LT_OK;
+   }
+   LTRESULT AddTextureRef(HTEXTURE texture) override {

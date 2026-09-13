@@ -1,0 +1,1 @@
+The complete compile-ready M29CL/0.34 source snapshot is stored in the next-chat handoff ZIP as artifacts/FEARVita_0.34_M29CL_Source.zip. SHA-256: b6a0ce45729597eff6f390d1589e11c69739e8268b7f89ace264a1721fb90209. The GitHub handoff intentionally does not commit VPKs, private game assets, logs or coredumps.

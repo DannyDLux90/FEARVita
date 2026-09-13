@@ -1,0 +1,23 @@
+M29CL coredump / VitaGL diagnosis summary
+
+Dump: psp2core-1789330709-0x000c922f73-eboot.bin.psp2dmp
+  runtime RX base: 0x8104b000
+  stop: data abort
+  normalized linked PC: 0x8103d62a
+  symbol: ClientConnectionMgr::SendClientInWorldMessage()
+  DFAR: 0x00000000
+  cause: g_pLTGameUtil == NULL at WriteServerKeyData path.
+
+Dump: psp2core-1789330612-0x00063d2a9f-eboot.bin.psp2dmp.tmp
+  terminate path: _kill_r <- abort <- __verbose_terminate_handler <- __cxa_throw
+  exception: std::bad_alloc
+  allocation request: 0x00400000 bytes
+  stack includes:
+    std::vector<unsigned char>::resize
+    CVitaTextureMgr::CreateTextureFromFile
+    TextureReference::Load
+    CScreenPostload::OnFocus
+  cause: Vita CPU heap pressure/fragmentation during a normal decoded texture allocation.
+
+vitaGL.log:
+  no renderer/GPU error signature found; normal shader translation is present.

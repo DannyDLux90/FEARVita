@@ -1,0 +1,33 @@
+--- M29CK/ClientConnectionMgr.cpp
++++ M29CL/ClientConnectionMgr.cpp
+@@ -817,7 +817,30 @@
+ 	char szPatchTitle[MAX_PATH] = "";
+ 	LTFileOperations::SplitPath( pProfile->m_sPlayerPatch.c_str( ), NULL, szPatchTitle, NULL );
+ 	cMsg.WriteString(szPatchTitle);
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	// The retail ILTGameUtil implementation contains proprietary multiplayer
++	// handshaking/obfuscation code and is not part of the released Jupiter EX
++	// sources.  For the authentic local single-player path we still preserve the
++	// exact ClientInWorld message shape: one uint32 occupies the same wire slot as
++	// WriteServerKeyData's world CRC payload, and the local ObjectDLL consumes it
++	// symmetrically.  Never use this fallback for multiplayer.
++	if( g_pLTGameUtil )
++	{
++		g_pLTGameUtil->WriteServerKeyData( cMsg, pProfile->m_PlayerGuid, m_nServerKey, nWorldCRC );
++	}
++	else if( !IsMultiplayerGameClient( ))
++	{
++		cMsg.Writeuint32( nWorldCRC );
++		fearvita::RuntimeDiagnostic( "local-handoff", "client-inworld-gameutil-fallback raw-worldcrc" );
++	}
++	else
++	{
++		fearvita::RuntimeDiagnostic( "local-handoff", "client-inworld-gameutil-missing multiplayer-blocked" );
++		return;
++	}
++#else
+ 	g_pLTGameUtil->WriteServerKeyData( cMsg, pProfile->m_PlayerGuid, m_nServerKey, nWorldCRC );
++#endif
+ 	g_pLTClient->SendToServer(cMsg.Read(),MESSAGE_GUARANTEED);
+ 
+ 	m_eSentClientConnectionState = eClientConnectionState_InWorld;

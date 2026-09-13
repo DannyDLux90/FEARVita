@@ -1,0 +1,12 @@
+--- M29CK/ScreenPostload.cpp
++++ M29CL/ScreenPostload.cpp
+@@ -206,6 +206,9 @@
+ 		float w = float(g_pInterfaceResMgr->GetScreenWidth());
+ 		float h = float(g_pInterfaceResMgr->GetScreenHeight());
+ 
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		fearvita::RuntimeDiagnostic("postload", std::string("background-texture=") + g_CurrentLayout.m_sBackTexture);
++#endif
+ 		m_hBackTexture.Load(g_CurrentLayout.m_sBackTexture.c_str());
+ 
+ 		LTVector2 vHalfTexel(0.5f / (float)w, 0.5f / (float)h);

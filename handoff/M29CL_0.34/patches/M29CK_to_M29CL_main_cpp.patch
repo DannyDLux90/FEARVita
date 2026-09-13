@@ -1,0 +1,28 @@
+--- M29CK/main.cpp
++++ M29CL/main.cpp
+@@ -532,7 +532,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.33 / M29CK; dynamic client/server shared execution context + player-model guard");
++      "FEARVita 0.34 / M29CL; local ClientInWorld gameutil wire fallback + shared texture cache/oom guard");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -637,13 +637,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.33 / M29CK; dynamic client/server shared execution context + player-model guard");
++      "FEARVita 0.34 / M29CL; local ClientInWorld gameutil wire fallback + shared texture cache/oom guard");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CK startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CL startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CK startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CL startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);

@@ -1,0 +1,43 @@
+--- M29CK/ServerConnectionMgr.cpp
++++ M29CL/ServerConnectionMgr.cpp
+@@ -28,6 +28,9 @@
+ #include "ltfileoperations.h"
+ #include "GameStartPointMgr.h"
+ #include "ltguid.h"
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/runtime_diagnostics.h"
++#endif
+ 
+ #if !defined(PLATFORM_XENON)
+ #include "iltgameutil.h"
+@@ -1104,7 +1107,29 @@
+ 	m_pGameClientData->SetInsignia(szPatchPath);
+ 
+ 	// get the world CRC value from the message
+-	uint32 nClientWorldCRC = g_pLTGameUtil->ReadServerKeyData( *msgEventParams.m_pMsg, ncd.m_PlayerGuid, ( uint32 )m_pGameClientData );
++	uint32 nClientWorldCRC = 0;
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	if( g_pLTGameUtil )
++	{
++		nClientWorldCRC = g_pLTGameUtil->ReadServerKeyData( *msgEventParams.m_pMsg, ncd.m_PlayerGuid, ( uint32 )m_pGameClientData );
++	}
++	else if( !IsMultiplayerGameServer( ))
++	{
++		// Must exactly mirror the client-side Vita fallback above.  Single-player
++		// never performs the multiplayer CRC comparison, but consuming this uint32
++		// keeps every following field/message boundary retail-compatible.
++		nClientWorldCRC = msgEventParams.m_pMsg->Readuint32( );
++		fearvita::RuntimeDiagnostic( "local-handoff", "server-inworld-gameutil-fallback raw-worldcrc" );
++	}
++	else
++	{
++		fearvita::RuntimeDiagnostic( "local-handoff", "server-inworld-gameutil-missing multiplayer-blocked" );
++		m_pGameClientData->SetClientConnectionState( eClientConnectionState_Error );
++		return true;
++	}
++#else
++	nClientWorldCRC = g_pLTGameUtil->ReadServerKeyData( *msgEventParams.m_pMsg, ncd.m_PlayerGuid, ( uint32 )m_pGameClientData );
++#endif
+ 
+ 	// compare it to the local value if we're a multiplayer host
+ 	if (IsMultiplayerGameServer())

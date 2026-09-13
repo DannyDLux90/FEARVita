@@ -1,0 +1,96 @@
+--- M29CK/SFXMgr.cpp
++++ M29CL/SFXMgr.cpp
+@@ -61,6 +61,9 @@
+ #include "PhysicsCollisionSystemFX.h"
+ #include "SpecialFXNotifyMessageHandler.h"
+ #include "ControlPointSFX.h"
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/runtime_diagnostics.h"
++#endif
+ 
+ //our object used for tracking performance for SFX updating
+ static CTimedSystem g_tsClientSFXUpdate("GameClient_SFX_Update", "GameClient");
+@@ -832,6 +835,9 @@
+ 		case SFX_CHARACTER_ID :
+ 		{
+ 			pSFX = g_SFXBank_Character.New();
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++			fearvita::RuntimeDiagnostic("local-handoff", pSFX ? "characterfx-stage allocated" : "characterfx-stage allocation-failed");
++#endif
+ 		}
+ 		break;
+ 
+@@ -966,6 +972,9 @@
+ 	{
+ 		if (!pSFX->Init(psfxCreateStruct))
+ 		{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++			if( nId == SFX_CHARACTER_ID ) fearvita::RuntimeDiagnostic("local-handoff", "characterfx-stage init-struct-failed");
++#endif
+ 			DeleteSFX(pSFX);
+             return NULL;
+ 		}
+@@ -974,27 +983,63 @@
+ 	{
+ 		if (!pSFX->Init(hServerObj, pMsg))
+ 		{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++			if( nId == SFX_CHARACTER_ID ) fearvita::RuntimeDiagnostic("local-handoff", "characterfx-stage init-message-failed");
++#endif
+ 			DeleteSFX(pSFX);
+             return NULL;
+ 		}
+ 	}
+ 	else
+ 	{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		if( nId == SFX_CHARACTER_ID ) fearvita::RuntimeDiagnostic("local-handoff", "characterfx-stage no-init-source");
++#endif
+ 		DeleteSFX(pSFX);
+         return NULL;
+ 	}
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	if( nId == SFX_CHARACTER_ID )
++	{
++		fearvita::RuntimeDiagnostic("local-handoff",
++			std::string("characterfx-stage init-ok server=") + std::to_string((uintptr_t)pSFX->GetServerObj()) +
++			" expected=" + std::to_string((uintptr_t)hServerObj));
++	}
++#endif
+ 
+ 	if (!pSFX->CreateObject(g_pLTClient))
+ 	{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		if( nId == SFX_CHARACTER_ID ) fearvita::RuntimeDiagnostic("local-handoff", "characterfx-stage create-object-failed");
++#endif
+ 		DeleteSFX(pSFX);
+         return NULL;
+ 	}
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	if( nId == SFX_CHARACTER_ID )
++	{
++		fearvita::RuntimeDiagnostic("local-handoff",
++			std::string("characterfx-stage create-object-ok server=") + std::to_string((uintptr_t)pSFX->GetServerObj()));
++	}
++#endif
+ 
+ 	if( !AddDynamicSpecialFX(pSFX, nId))
+ 	{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		if( nId == SFX_CHARACTER_ID ) fearvita::RuntimeDiagnostic("local-handoff", "characterfx-stage add-list-failed");
++#endif
+ 		DeleteSFX( pSFX );
+ 		return NULL;
+ 	}
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	if( nId == SFX_CHARACTER_ID )
++	{
++		CCharacterFX* pCheck = GetCharacterFX( pSFX->GetServerObj( ));
++		fearvita::RuntimeDiagnostic("local-handoff",
++			std::string("characterfx-stage add-list-ok lookup=") + (pCheck == pSFX ? "same" : (pCheck ? "other" : "null")) +
++			" server=" + std::to_string((uintptr_t)pSFX->GetServerObj()));
++	}
++#endif
+ 
+ 	return pSFX;
+ }

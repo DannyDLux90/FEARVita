@@ -1,0 +1,47 @@
+FEARVita M29CL / 0.34
+Date: 2026-09-13
+
+Hardware evidence from M29CK / 0.33:
+- The M29CK SharedFXStructs execution-context fix worked. Both FEAR and Extraction Point
+  reached player-local-model-ok.
+- PlayerBody reached filenames-ok, animations-ok, physics-ok, reset-complete and
+  player-local-init-complete.
+- The previously crashing null AnimationContext path is therefore no longer the active gate.
+- CharacterFX still logged client-player-characterfx-create-failed. M29CL does not bypass it;
+  SFXMgr now logs allocation/init/CreateObject/list/lookup stages to localize it.
+- Extraction Point reached ScreenPostload and the exact retail ClientInWorld send attempt.
+
+Coredump A:
+- Data abort in ClientConnectionMgr::SendClientInWorldMessage().
+- g_pLTGameUtil was NULL at the WriteServerKeyData call.
+- M29CL uses the stock ILTGameUtil path when present.
+- Only for local singleplayer on Vita when ILTGameUtil is unavailable, client writes the raw
+  uint32 world CRC in the same wire slot and server reads the same uint32.
+- Multiplayer explicitly refuses this fallback. No connection state or GS_PLAYING is forged.
+
+Coredump B:
+- std::bad_alloc while std::vector<uint8_t>::resize requested 0x00400000 bytes in
+  CVitaTextureMgr::CreateTextureFromFile(), called by TextureReference::Load from
+  CScreenPostload::OnFocus().
+- The request was a normal 4 MiB decoded texture allocation, not a corrupt huge dimension.
+- M29CL caches file-backed FakeTexture objects by normalized filename with refcount sharing,
+  avoiding repeated decoded/GPU copies for heavily repeated UI textures.
+- Remaining decode OOM is caught and degrades only that texture to a 1x1 transparent fallback
+  instead of terminating the process.
+
+vitaGL.log:
+- Useful as negative evidence: no shader compilation failure, GPU exception, VitaGL OOM,
+  fatal/assert/error marker was found near the crash. The tail contains normal GLSL translation.
+- The observed crashes are CPU/gamecode-side, not a VitaGL-reported GPU failure.
+
+New M29CL diagnostics:
+- client-inworld-gameutil-fallback raw-worldcrc
+- server-inworld-gameutil-fallback raw-worldcrc
+- texture-cache hit ...
+- texture-load oom-fallback ...
+- postload background-texture=...
+- characterfx-stage allocated / init-ok / create-object-ok|failed /
+  add-list-ok lookup=same|other|null / add-list-failed
+
+No fake player, no forced GS_PLAYING, no model-less player, no unsafe broad MID_SFX/HOBJECT
+forwarding was added.
