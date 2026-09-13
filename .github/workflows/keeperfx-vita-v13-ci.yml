@@ -1,13 +1,13 @@
-name: KeeperFX Vita v13 Diagnostics CI
+name: KeeperFX Vita v14 Packet History CI
 
 on:
   push:
-    branches: [ "keeperfx-vita-v13-build" ]
+    branches: [ "keeperfx-vita-v14-build" ]
   workflow_dispatch:
 
 jobs:
   build-vita:
-    name: Build KeeperFX PS Vita v13 diagnostics
+    name: Build KeeperFX PS Vita v14 packet history
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/cerwym/build-vitasdk:latest
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout Vita helpers
         uses: actions/checkout@v4
         with:
-          ref: keeperfx-vita-v13-diagnostics
+          ref: keeperfx-vita-v14-packet-history
           path: ci
 
       - name: Checkout KeeperFX known-good Vita commit
@@ -46,7 +46,7 @@ jobs:
           p.write_text(s, encoding='utf-8')
           PY
 
-      - name: Install Vita v5-v13 fixes and diagnostics
+      - name: Install Vita v5-v14 fixes
         working-directory: keeperfx
         run: |
           cp ../ci/keeperfx-vita/vita_bootstrap.hpp src/platform/vita_bootstrap.hpp
@@ -75,7 +75,7 @@ jobs:
           old = "if include_anchor in s and '#include <math.h>\\n' not in s:\n    s = s.replace(include_anchor, '#include <math.h>\\n' + include_anchor, 1)\ns = s[:idx] + helper + s[idx:]"
           new = "if include_anchor in s and '#include <math.h>\\n' not in s:\n    s = s.replace(include_anchor, '#include <math.h>\\n' + include_anchor, 1)\nidx = s.find(anchor)\nif idx < 0:\n    raise SystemExit('v11 patch: controller axis function moved unexpectedly')\ns = s[:idx] + helper + s[idx:]"
           if old not in s:
-              raise SystemExit('v13 CI: v11 helper offset fix pattern missing')
+              raise SystemExit('v14 CI: v11 helper offset fix pattern missing')
           p.write_text(s.replace(old, new, 1), encoding='utf-8')
           PY
           python3 /tmp/patch_v11.py
@@ -88,7 +88,7 @@ jobs:
           decls = ('static int touch_x_to_screen(int raw_x);\n'
                    'static int touch_y_to_screen(int raw_y);\n\n')
           if anchor not in s:
-              raise SystemExit('v13 CI: camera helper anchor missing')
+              raise SystemExit('v14 CI: camera helper anchor missing')
           if 'static int touch_x_to_screen(int raw_x);' not in s:
               s = s.replace(anchor, decls + anchor, 1)
           p.write_text(s, encoding='utf-8')
@@ -104,8 +104,16 @@ jobs:
           python3 ../ci/keeperfx-vita/patch_v12_ingame_blockers_perf.py
           python3 ../ci/keeperfx-vita/patch_v12b_affinity_order.py
           python3 ../ci/keeperfx-vita/patch_v13_diagnostics.py
+          python3 ../ci/keeperfx-vita/patch_v14_local_packet_history.py
 
-          # V13 diagnostics gates.
+          # V14 root-cause gates: networking-off must keep functional local packet history.
+          grep -q 'LOCAL_PACKET_HISTORY_SIZE 40' src/bflib_network_stub.c
+          grep -q 's_local_packet_history\[MAX_NET_USERS\]' src/bflib_network_stub.c
+          grep -q 'entries\[packet->turn % LOCAL_PACKET_HISTORY_SIZE\]' src/bflib_network_stub.c
+          grep -q 'packet->turn != turn' src/bflib_network_stub.c
+          ! grep -q 'get_history_packet(PlayerNumber player, GameTurn turn) { (void)player; (void)turn; return NULL; }' src/bflib_network_stub.c
+
+          # Preserve V13 diagnostics for hardware verification.
           grep -q '\[V13 raw\]' src/input/input_vita.c
           grep -q '\[V13 state\]' src/front_input.c
           grep -q '\[V13 gate\]' src/front_input.c
@@ -172,24 +180,24 @@ jobs:
         working-directory: keeperfx
         run: cmake --preset vita-release
 
-      - name: Build v13 diagnostic VPK
+      - name: Build v14 VPK
         working-directory: keeperfx
         shell: bash
         run: |
           set +e
           cmake --build --preset vita-release > build.log 2>&1
           status=$?
-          tail -n 300 build.log
+          tail -n 320 build.log
           if [ "$status" -ne 0 ]; then
             echo '=== ERROR DIAGNOSTICS ==='
-            grep -E -C 5 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 600 || true
+            grep -E -C 5 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 700 || true
           fi
           exit "$status"
 
-      - name: Upload v13 VPK and symbols
+      - name: Upload v14 VPK and symbols
         uses: actions/upload-artifact@v4
         with:
-          name: keeperfx-vita-v13-diagnostics
+          name: keeperfx-vita-v14-packet-history
           path: |
             keeperfx/out/build/vita-release/*.vpk
             keeperfx/out/build/vita-release/*.elf
