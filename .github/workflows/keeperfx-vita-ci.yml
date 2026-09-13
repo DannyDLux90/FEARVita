@@ -1,13 +1,13 @@
-name: KeeperFX Vita Known-Good CI
+name: KeeperFX Vita v9 UX/Input CI
 
 on:
   push:
-    branches: [ "keeperfx-vita-known-good" ]
+    branches: [ "keeperfx-vita-v9-build" ]
   workflow_dispatch:
 
 jobs:
   build-vita:
-    name: Build known-good KeeperFX PS Vita
+    name: Build KeeperFX PS Vita v9 UX/Input
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/cerwym/build-vitasdk:latest
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout Vita helpers
         uses: actions/checkout@v4
         with:
-          ref: keeperfx-vita-ci
+          ref: keeperfx-vita-v9-ux
           path: ci
 
       - name: Checkout KeeperFX known-good Vita commit
@@ -46,7 +46,7 @@ jobs:
           p.write_text(s, encoding='utf-8')
           PY
 
-      - name: Install first-run bootstrap, Deeper launch and v8 correctness fixes
+      - name: Install bootstrap and v9 UX/input fixes
         working-directory: keeperfx
         run: |
           cp ../ci/keeperfx-vita/vita_bootstrap.hpp src/platform/vita_bootstrap.hpp
@@ -62,29 +62,37 @@ jobs:
           python3 ../ci/keeperfx-vita/patch_v8b_safety.py
           python3 ../ci/keeperfx-vita/patch_v8c_loader_shutdown.py
           python3 ../ci/keeperfx-vita/patch_v8d_software_ui.py
+          python3 ../ci/keeperfx-vita/patch_v9_ux_controls.py
 
-          # Static correctness gates for the real-hardware black-screen fixes.
+          # Preserve v8 renderer/lifecycle correctness.
           grep -q 'c.hasGPURenderPath        = 0' src/renderer/RendererVita.h
           grep -q 'c.wantsFullscreenViewport = 0' src/renderer/RendererVita.h
           grep -q 'c.hasGPUSprites           = 0' src/renderer/RendererVita.h
           grep -q 'GPU sprite intercept disabled' src/renderer/RendererManager.cpp
           grep -q 'const TbScreenCoord vita_w = 640' src/bflib_video.c
           grep -q 'const TbScreenCoord vita_h = 480' src/bflib_video.c
-          grep -q '.keeperfx_vita_data_v8' src/platform/vita_bootstrap.hpp
           grep -q 'void RendererVita::ClearScreen' src/renderer/RendererVita.cpp
           grep -q 'sceDisplayWaitVblankStart' src/platform/vita_bootstrap.hpp
           grep -q 'static void loader_shutdown' src/platform/vita_bootstrap.hpp
-          grep -q 'sceDisplaySetFrameBuf(NULL, SCE_DISPLAY_SETBUF_IMMEDIATE)' src/platform/vita_bootstrap.hpp
-          grep -q 'loader framebuffer released before SDL/vitaGL' src/platform/vita_bootstrap.hpp
-          grep -q 'KeeperFX Vita data v8' src/platform/vita_bootstrap.hpp
           grep -q 'register_sheet_software(frontend_sprite)' src/renderer/RendererManager.cpp
           grep -q 'register_sheet_software(pointer_sprites)' src/renderer/RendererManager.cpp
           grep -q 'register_sheet_software(gui_panel_sprites)' src/renderer/RendererManager.cpp
           grep -q 'register_sheet_software(button_sprites)' src/renderer/RendererManager.cpp
           grep -q 'register_sheet_software(custom_sprites)' src/renderer/RendererManager.cpp
           grep -A5 'TbScreenMode get_frontend_vidmode' src/vidmode.c | grep -q 'Lb_SCREEN_MODE_640_480_8'
-          grep -A5 'TbScreenMode get_movies_vidmode' src/vidmode.c | grep -q 'Lb_SCREEN_MODE_640_480_8'
-          grep -A5 'TbScreenMode get_failsafe_vidmode' src/vidmode.c | grep -q 'Lb_SCREEN_MODE_640_480_8'
+
+          # v9 gates: loader, diagnostic overlay, progress and single-poll input.
+          grep -q '.keeperfx_vita_data_v9' src/platform/vita_bootstrap.hpp
+          grep -q 'never recopied between live progress repaints' src/platform/vita_bootstrap.hpp
+          grep -q 'HAVE_DEBUGGER=0' build/cmake/modules/PlatformVita.cmake
+          ! grep -q 'HAVE_DEBUGGER=1' build/cmake/modules/PlatformVita.cmake
+          grep -q '#define VITA_SCREEN_WIDTH  640' src/input/input_vita.c
+          grep -q '#define VITA_SCREEN_HEIGHT 480' src/input/input_vita.c
+          grep -q 'Poll SCE controller/touch exactly once' src/platform/WindowSystemVita.cpp
+          test "$(grep -R 'g_input->poll_events();' -n src/platform/WindowSystemVita.cpp src/kjm_input.c | wc -l)" -eq 1
+          grep -q 'vita_startup_progress(100)' src/main.cpp
+          grep -q 'local \* 52u' src/custom_sprites_cache.c
+          grep -q 'extern "C" void vita_startup_progress' src/platform/vita_startup_progress.cpp
 
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
@@ -123,28 +131,28 @@ jobs:
       - name: Install vitaGL dependencies
         run: $VITASDK/bin/vdpm vitashark mathneon
 
-      - name: Configure known-good Vita release
+      - name: Configure Vita release
         working-directory: keeperfx
         run: cmake --preset vita-release
 
-      - name: Build known-good Touch VPK
+      - name: Build v9 VPK
         working-directory: keeperfx
         shell: bash
         run: |
           set +e
           cmake --build --preset vita-release > build.log 2>&1
           status=$?
-          tail -n 180 build.log
+          tail -n 220 build.log
           if [ "$status" -ne 0 ]; then
             echo '=== ERROR DIAGNOSTICS ==='
-            grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 320 || true
+            grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 360 || true
           fi
           exit "$status"
 
-      - name: Upload known-good Touch VPK
+      - name: Upload v9 VPK
         uses: actions/upload-artifact@v4
         with:
-          name: keeperfx-vita-bootstrap-known-good-v8
+          name: keeperfx-vita-v9-ux-input
           path: |
             keeperfx/out/build/vita-release/*.vpk
             keeperfx/out/build/vita-release/*.elf
