@@ -1,0 +1,456 @@
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.13")
++  set(VITA_VERSION  "00.14")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -532,7 +532,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.13 / M29BP; Model00p v33 physics-shape stride decoder");
++      "FEARVita 0.14 / M29BQ; Model00p v33 global physics-shape layout solver");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -637,13 +637,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.13 / M29BP; Model00p v33 physics-shape stride decoder");
++      "FEARVita 0.14 / M29BQ; Model00p v33 global physics-shape layout solver");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BP startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BQ startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29BP startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29BQ startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
+--- a/lithtech-overlay/runtime/model/src/model_load.cpp
++++ b/lithtech-overlay/runtime/model/src/model_load.cpp
+@@ -936,43 +936,45 @@
+ 
+ 	struct JexPhysicsShapeProbe
+ 	{
+-		uint8 shapeIndex;
++		uint8 shapeTag;
++		LTVector offset;
++		LTRotation orientation;
++		float cor;
++		float friction;
++		uint32 collisionGroup;
+ 		uint32 nodeIndex;
+-		float orientationW;
++		float mass;
++		float density;
++		float radius;
+ 		uint32 baseEnd;
+-		bool indexMatches;
++		bool nodeValid;
++	};
++
++	struct JexPhysicsShapeLayout
++	{
++		std::vector<uint32> extraBytes;
++		uint32 constraintPos;
++		uint32 constraintCount;
+ 	};
+ 
+-	// FEAR Model00p v33 stores sphere and capsule records in the same stream.
+-	// A sphere is the 57-byte base record. A capsule appends 24 bytes.
+-	// Older reverse engineering used orientation.w != 1 as the discriminator,
+-	// but an axis-aligned capsule can legitimately use the identity rotation.
+-	// Probe the following record instead so record size is derived from stream
+-	// structure (shape index/node validity), not from quaternion contents.
+-	static bool JexProbePhysicsShape(JexReader& r, uint32 pos, uint32 expectedIndex,
++	// A packed FEAR v33 physics shape always begins with the same 57-byte
++	// base record.  Sphere records end there; capsule records append 24 bytes.
++	// The first byte is deliberately kept opaque here.  Public reverse-
++	// engineering called it ShapeIndex, but retail data proves it is not a
++	// simple sequential record number, so it must not be used to infer stride.
++	static bool JexProbePhysicsShape(JexReader& r, uint32 pos,
+ 		uint32 nodeCount, JexPhysicsShapeProbe& out)
+ 	{
+ 		if(!r.Seek(pos)) return false;
++		memset(&out, 0, sizeof(out));
+ 
+-		LTVector offset;
+-		LTRotation orientation;
+-		float cor=0.0f, friction=0.0f, mass=0.0f, density=0.0f, radius=0.0f;
+-		uint32 collisionGroup=0, nodeIndex=0;
+-		uint8 shapeIndex=0;
+-
+-		if(!r.Read(shapeIndex) || !JexReadVector(r, offset) || !JexReadRotation(r, orientation) ||
+-		   !r.Read(cor) || !r.Read(friction) || !r.Read(collisionGroup) || !r.Read(nodeIndex) ||
+-		   !r.Read(mass) || !r.Read(density) || !r.Read(radius))
++		if(!r.Read(out.shapeTag) || !JexReadVector(r, out.offset) || !JexReadRotation(r, out.orientation) ||
++		   !r.Read(out.cor) || !r.Read(out.friction) || !r.Read(out.collisionGroup) || !r.Read(out.nodeIndex) ||
++		   !r.Read(out.mass) || !r.Read(out.density) || !r.Read(out.radius))
+ 			return false;
+ 
+-		if(nodeIndex >= nodeCount)
+-			return false;
+-
+-		out.shapeIndex = shapeIndex;
+-		out.nodeIndex = nodeIndex;
+-		out.orientationW = orientation.m_Quat[3];
+ 		out.baseEnd = r.Pos();
+-		out.indexMatches = (expectedIndex <= 255u && shapeIndex == static_cast<uint8>(expectedIndex));
++		out.nodeValid = (out.nodeIndex < nodeCount);
+ 		return true;
+ 	}
+ 
+@@ -982,6 +984,115 @@
+ 		return r.Read(value);
+ 	}
+ 
++	// Validate enough of the structure immediately after the shape block to
++	// distinguish accidental node-valid parses.  The constraint record sizes
++	// are the v33 sizes documented by the public Model00p research: limited
++	// hinge (type 3) has 18 floats plus three trailing 32-bit values; all
++	// other FEAR v33 constraint records use 24 floats plus one trailing value.
++	// We then require the following physics-weight-set count to match the
++	// model header.  This is validation only; the real parser still consumes
++	// these sections below.
++	static bool JexValidatePhysicsShapeTail(JexReader& r, uint32 pos,
++		uint32 expectedConstraintCount, uint32 expectedPhysicsWeightSetCount)
++	{
++		if(!r.Seek(pos)) return false;
++		uint32 constraintCount = 0;
++		if(!r.Read(constraintCount) || constraintCount != expectedConstraintCount || constraintCount > 65536u)
++			return false;
++
++		for(uint32 i = 0; i < constraintCount; ++i)
++		{
++			uint32 type=0, shapeRef=0, unknown=0;
++			if(!r.Read(type) || !r.Read(shapeRef) || !r.Read(unknown)) return false;
++			const uint32 bytesAfterHeader = (type == 3u) ? (18u * 4u + 3u * 4u) : (24u * 4u + 1u * 4u);
++			if(!r.Skip(bytesAfterHeader)) return false;
++		}
++
++		uint32 weightSetCount = 0;
++		return r.Read(weightSetCount) && weightSetCount == expectedPhysicsWeightSetCount;
++	}
++
++	static void JexFindPhysicsShapeLayouts(JexReader& r,
++		uint32 shapeIndex, uint32 shapeCount, uint32 pos, uint32 nodeCount,
++		uint32 expectedConstraintCount, uint32 expectedPhysicsWeightSetCount,
++		std::vector<uint32>& currentExtra,
++		std::vector<JexPhysicsShapeLayout>& solutions)
++	{
++		// More than a handful of structurally valid solutions would indicate
++		// that the validation is not selective enough.  Stop before a corrupt
++		// file can cause combinatorial work.
++		if(solutions.size() >= 16u || shapeIndex >= shapeCount)
++			return;
++
++		JexPhysicsShapeProbe shape;
++		if(!JexProbePhysicsShape(r, pos, nodeCount, shape) || !shape.nodeValid)
++			return;
++
++		const uint32 candidates[2] = { 0u, 24u };
++		for(uint32 c = 0; c < 2; ++c)
++		{
++			const uint32 extra = candidates[c];
++			if(shape.baseEnd > r.len || extra > (r.len - shape.baseEnd))
++				continue;
++			const uint32 nextPos = shape.baseEnd + extra;
++			currentExtra.push_back(extra);
++
++			if(shapeIndex + 1u == shapeCount)
++			{
++				uint32 constraintCount = 0;
++				if(JexPeekU32(r, nextPos, constraintCount) && constraintCount == expectedConstraintCount &&
++				   JexValidatePhysicsShapeTail(r, nextPos, expectedConstraintCount, expectedPhysicsWeightSetCount))
++				{
++					JexPhysicsShapeLayout layout;
++					layout.extraBytes = currentExtra;
++					layout.constraintPos = nextPos;
++					layout.constraintCount = constraintCount;
++					solutions.push_back(layout);
++				}
++			}
++			else
++			{
++				JexFindPhysicsShapeLayouts(r, shapeIndex + 1u, shapeCount, nextPos, nodeCount,
++					expectedConstraintCount, expectedPhysicsWeightSetCount, currentExtra, solutions);
++			}
++
++			currentExtra.pop_back();
++		}
++	}
++
++	static void JexTracePhysicsShapeFrontier(JexReader& r, uint32 shapeCount,
++		uint32 startPos, uint32 nodeCount, const char* pFilename)
++	{
++		// Diagnostic-only breadth expansion.  It does not choose a layout; it
++		// records the first few structurally reachable records when no complete
++		// path exists so the next retail sample exposes the exact boundary.
++		std::vector<uint32> positions;
++		positions.push_back(startPos);
++		uint32 emitted = 0;
++		for(uint32 depth = 0; depth < shapeCount && !positions.empty() && emitted < 48u; ++depth)
++		{
++			std::vector<uint32> next;
++			for(uint32 i = 0; i < positions.size() && emitted < 48u; ++i)
++			{
++				JexPhysicsShapeProbe p;
++				const bool readable = JexProbePhysicsShape(r, positions[i], nodeCount, p);
++				buffer256 msg("[model00p-layout] depth=%u pos=%u readable=%u tag=%u node=%u valid=%u base=%u qw=%.6f file=%s\n",
++					depth, positions[i], readable ? 1u : 0u,
++					readable ? (uint32)p.shapeTag : 0u, readable ? p.nodeIndex : 0xFFFFFFFFu,
++					(readable && p.nodeValid) ? 1u : 0u, readable ? p.baseEnd : 0u,
++					readable ? p.orientation.m_Quat[3] : 0.0f, pFilename ? pFilename : "<null>");
++				dsi_ConsolePrint(msg);
++				++emitted;
++				if(readable && p.nodeValid)
++				{
++					if(p.baseEnd <= r.len) next.push_back(p.baseEnd);
++					if(p.baseEnd <= r.len && 24u <= (r.len - p.baseEnd)) next.push_back(p.baseEnd + 24u);
++				}
++			}
++			positions.swap(next);
++		}
++	}
++
+ 	static const char* JexStringAt(const std::vector<char>& table, uint32 offset)
+ 	{
+ 		if(offset >= table.size()) return NULL;
+@@ -1295,106 +1406,71 @@
+ 			dsi_ConsolePrint(msg);
+ 		}
+ 		if(tracePlayer) { buffer256 msg("[model00p-player] physics-header visnode=%u radius=%.3f shapes=%u header-shapes=%u pos=%u\n", visNode, physicsVisRadius, shapeCount, h.physicsShapeCount, r.Pos()); dsi_ConsolePrint(msg); }
+-		const uint32 headerConstraintCount = h.stiffSpringConstraintCount + h.hingeConstraintCount +
++		// Header field unk13 is the seventh constraint-class count in the
++		// published v33 layout (ball/socket in the public template).  M29BP
++		// accidentally omitted it from the sum.  The packed stream's aggregate
++		// constraint count must equal all seven class counts.
++		const uint32 headerConstraintCount = h.unk13 + h.stiffSpringConstraintCount + h.hingeConstraintCount +
+ 			h.limitedHingeConstraintCount + h.ragdollConstraintCount + h.wheelConstraintCount + h.prismaticConstraintCount;
+-		for(uint32 i = 0; i < shapeCount; ++i)
++		const uint32 shapeBlockStart = r.Pos();
++
++		std::vector<uint32> currentExtra;
++		std::vector<JexPhysicsShapeLayout> shapeLayouts;
++		currentExtra.reserve(shapeCount);
++		JexFindPhysicsShapeLayouts(r, 0u, shapeCount, shapeBlockStart, h.nodeCount,
++			headerConstraintCount, h.physicsWeightCount, currentExtra, shapeLayouts);
++
++		if(shapeLayouts.empty())
+ 		{
+-			uint8 shapeIndex = 0;
+-			LTVector offset; LTRotation orientation;
+-			float cor=0, friction=0, mass=0, density=0, radius=0;
+-			uint32 collisionGroup=0, nodeIndex=0;
+-			if(!r.Read(shapeIndex) || !JexReadVector(r, offset) || !JexReadRotation(r, orientation) ||
+-			   !r.Read(cor) || !r.Read(friction) || !r.Read(collisionGroup) || !r.Read(nodeIndex) ||
+-			   !r.Read(mass) || !r.Read(density) || !r.Read(radius))
+-				return JexInvalidAt(r, pFilename, "physics-shape-read");
+-			if(nodeIndex >= h.nodeCount)
+-			{
+-				buffer256 msg("[model00p-fail] stage=physics-shape-node shape=%u node=%u nodes=%u file=%s\n", i, nodeIndex, h.nodeCount, pFilename ? pFilename : "<null>");
+-				dsi_ConsolePrint(msg);
+-				return LT_INVALIDFILE;
+-			}
++			buffer256 msg("[model00p-fail] stage=physics-shape-layout solutions=0 start=%u shapes=%u constraints=%u physweights=%u file=%s\n",
++				shapeBlockStart, shapeCount, headerConstraintCount, h.physicsWeightCount, pFilename ? pFilename : "<null>");
++			dsi_ConsolePrint(msg);
++			if(tracePlayer) JexTracePhysicsShapeFrontier(r, shapeCount, shapeBlockStart, h.nodeCount, pFilename);
++			return LT_INVALIDFILE;
++		}
++		if(shapeLayouts.size() != 1u)
++		{
++			buffer256 msg("[model00p-fail] stage=physics-shape-layout-ambiguous solutions=%u start=%u shapes=%u file=%s\n",
++				(uint32)shapeLayouts.size(), shapeBlockStart, shapeCount, pFilename ? pFilename : "<null>");
++			dsi_ConsolePrint(msg);
++			return LT_INVALIDFILE;
++		}
+ 
+-			const uint32 baseEnd = r.Pos();
+-			uint32 extraBytes = 0;
++		const JexPhysicsShapeLayout& shapeLayout = shapeLayouts[0];
++		if(shapeLayout.extraBytes.size() != shapeCount || !r.Seek(shapeBlockStart))
++			return JexInvalidAt(r, pFilename, "physics-shape-layout-restore");
+ 
+-			if(i + 1 < shapeCount)
+-			{
+-				JexPhysicsShapeProbe noExtraProbe;
+-				JexPhysicsShapeProbe capsuleProbe;
+-				const bool noExtraValid = JexProbePhysicsShape(r, baseEnd, i + 1, h.nodeCount, noExtraProbe);
+-				const bool capsuleValid = JexProbePhysicsShape(r, baseEnd + 24u, i + 1, h.nodeCount, capsuleProbe);
+-
+-				if(capsuleValid && !noExtraValid)
+-					extraBytes = 24;
+-				else if(noExtraValid && !capsuleValid)
+-					extraBytes = 0;
+-				else if(noExtraValid && capsuleValid)
+-				{
+-					if(capsuleProbe.indexMatches && !noExtraProbe.indexMatches)
+-						extraBytes = 24;
+-					else if(noExtraProbe.indexMatches && !capsuleProbe.indexMatches)
+-						extraBytes = 0;
+-					else
+-						extraBytes = (orientation.m_Quat[3] != 1.0f) ? 24u : 0u;
+-				}
+-				else
+-				{
+-					if(tracePlayer)
+-					{
+-						buffer256 msg("[model00p-fail] stage=physics-shape-stride shape=%u base=%u no-extra=0 capsule=0 file=%s\n",
+-							i, baseEnd, pFilename ? pFilename : "<null>");
+-						dsi_ConsolePrint(msg);
+-					}
+-					return JexInvalidAt(r, pFilename, "physics-shape-stride");
+-				}
++		if(tracePlayer)
++		{
++			buffer256 msg("[model00p-player] physics-layout solved shapes=%u constraint-pos=%u constraints=%u\n",
++				shapeCount, shapeLayout.constraintPos, shapeLayout.constraintCount);
++			dsi_ConsolePrint(msg);
++		}
+ 
+-				if(tracePlayer)
+-				{
+-					buffer256 msg("[model00p-player] physics-shape=%u index=%u node=%u qw=%.6f extra=%u next0=%u next24=%u idx0=%u idx24=%u\n",
+-						i, (uint32)shapeIndex, nodeIndex, orientation.m_Quat[3], extraBytes,
+-						noExtraValid ? 1u : 0u, capsuleValid ? 1u : 0u,
+-						(noExtraValid && noExtraProbe.indexMatches) ? 1u : 0u,
+-						(capsuleValid && capsuleProbe.indexMatches) ? 1u : 0u);
+-					dsi_ConsolePrint(msg);
+-				}
+-			}
+-			else
+-			{
+-				uint32 noExtraConstraints=0, capsuleConstraints=0;
+-				const bool noExtraReadable = JexPeekU32(r, baseEnd, noExtraConstraints);
+-				const bool capsuleReadable = JexPeekU32(r, baseEnd + 24u, capsuleConstraints);
+-				const bool noExtraExact = noExtraReadable && (noExtraConstraints == headerConstraintCount);
+-				const bool capsuleExact = capsuleReadable && (capsuleConstraints == headerConstraintCount);
+-				const bool noExtraReasonable = noExtraReadable && (noExtraConstraints <= 65536u);
+-				const bool capsuleReasonable = capsuleReadable && (capsuleConstraints <= 65536u);
+-
+-				if(capsuleExact && !noExtraExact)
+-					extraBytes = 24;
+-				else if(noExtraExact && !capsuleExact)
+-					extraBytes = 0;
+-				else if(capsuleReasonable && !noExtraReasonable)
+-					extraBytes = 24;
+-				else if(noExtraReasonable && !capsuleReasonable)
+-					extraBytes = 0;
+-				else
+-					extraBytes = (orientation.m_Quat[3] != 1.0f) ? 24u : 0u;
++		for(uint32 i = 0; i < shapeCount; ++i)
++		{
++			const uint32 shapePos = r.Pos();
++			JexPhysicsShapeProbe shape;
++			if(!JexProbePhysicsShape(r, shapePos, h.nodeCount, shape) || !shape.nodeValid)
++				return JexInvalidAt(r, pFilename, "physics-shape-replay");
+ 
+-				if(tracePlayer)
+-				{
+-					buffer256 msg("[model00p-player] physics-shape=%u index=%u node=%u qw=%.6f extra=%u constraints0=%u constraints24=%u expected=%u\n",
+-						i, (uint32)shapeIndex, nodeIndex, orientation.m_Quat[3], extraBytes,
+-						noExtraReadable ? noExtraConstraints : 0xFFFFFFFFu,
+-						capsuleReadable ? capsuleConstraints : 0xFFFFFFFFu,
+-						headerConstraintCount);
+-					dsi_ConsolePrint(msg);
+-				}
++			const uint32 extraBytes = shapeLayout.extraBytes[i];
++			if(tracePlayer)
++			{
++				buffer256 msg("[model00p-player] physics-shape=%u tag=%u node=%u qw=%.6f radius=%.3f mass=%.3f density=%.3f extra=%u pos=%u base=%u\n",
++					i, (uint32)shape.shapeTag, shape.nodeIndex, shape.orientation.m_Quat[3],
++					shape.radius, shape.mass, shape.density, extraBytes, shapePos, shape.baseEnd);
++				dsi_ConsolePrint(msg);
+ 			}
+ 
+-			if(!r.Seek(baseEnd))
+-				return JexInvalidAt(r, pFilename, "physics-shape-restore");
++			if(!r.Seek(shape.baseEnd))
++				return JexInvalidAt(r, pFilename, "physics-shape-replay-restore");
+ 			if(extraBytes && !r.Skip(extraBytes))
+ 				return JexInvalidAt(r, pFilename, "physics-capsule-extra");
+ 		}
++
++		if(r.Pos() != shapeLayout.constraintPos || !r.Seek(shapeLayout.constraintPos))
++			return JexInvalidAt(r, pFilename, "physics-shape-layout-end");
+ 		if(tracePlayer) { buffer256 msg("[model00p-player] shapes-ok count=%u pos=%u\n", shapeCount, r.Pos()); dsi_ConsolePrint(msg); }
+ 
+ 		uint32 constraintCount = 0;
+--- a/lithtech-overlay/runtime/server/src/serverde_impl.cpp
++++ b/lithtech-overlay/runtime/server/src/serverde_impl.cpp
+@@ -4,6 +4,11 @@
+ // ---------------------------------------------------------------
+ //
+ #include "bdefs.h"
++
++#if defined(FEARVITA_VFS)
++class ILTMessage_Read;
++extern "C" void FearVita_ClientReceiveServerMessage(ILTMessage_Read* pMsg);
++#endif
+ #include "ltbasedefs.h"
+ 
+ #include "servermgr.h"
+@@ -1289,15 +1294,31 @@
+ 	cWrapMsg.WritePacket(pServerMsg->GetPacket());
+ 	CPacket_Read cFinalMsg(cWrapMsg);
+ 
++	auto FearVitaSendGameMessage = [&](Client* pClient)
++	{
++#if defined(FEARVITA_VFS)
++		if (pClient && (pClient->m_ClientFlags & CFLAG_LOCAL))
++		{
++			// The Vita monolith has no packet-level client engine. Deliver the
++			// original game message directly to the Retail ClientShell while the
++			// server continues to own all gameplay/client state.
++			pMsg->SeekTo(0);
++			FearVita_ClientReceiveServerMessage(pMsg);
++			return;
++		}
++#endif
++		::SendToClient(pClient, cFinalMsg, true, flags);
++	};
++
+ 	if (hSendTo)
+ 	{
+-		::SendToClient((Client*)hSendTo, cFinalMsg, true, flags);
++		FearVitaSendGameMessage((Client*)hSendTo);
+ 	}
+ 	else
+ 	{
+ 		for (LTLink *pCur = g_pServerMgr->m_Clients.m_Head.m_pNext; pCur != &g_pServerMgr->m_Clients.m_Head; pCur = pCur->m_pNext)
+ 		{
+-			::SendToClient((Client*)pCur->m_pData, cFinalMsg, true, flags);
++			FearVitaSendGameMessage((Client*)pCur->m_pData);
+ 		}
+ 	}
+ 
+@@ -1379,6 +1400,17 @@
+ 	return LT_OK;
+ }
+ 
++#if defined(FEARVITA_VFS)
++extern "C" LTRESULT FearVita_ServerDispatchClientMessage(HCLIENT hClient, ILTMessage_Read* pMsg)
++{
++	if (!hClient || !pMsg || !i_server_shell)
++		return LT_NOTINITIALIZED;
++	pMsg->SeekTo(0);
++	i_server_shell->OnMessage(hClient, pMsg);
++	return LT_OK;
++}
++#endif
++
+ LTRESULT CLTServer::SendToServer(ILTMessage_Read *pMsg, HOBJECT hSender, uint32 flags) 
+ {
+ 	FN_NAME(CLTServer::SendToServer);
