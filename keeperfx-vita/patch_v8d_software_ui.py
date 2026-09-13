@@ -1,45 +1,68 @@
 from pathlib import Path
 
-
-def replace_once(text, old, new, name):
-    if old not in text:
-        raise SystemExit(f'v8d patch: pattern not found: {name}')
-    return text.replace(old, new, 1)
-
 p = Path('src/renderer/RendererManager.cpp')
 s = p.read_text(encoding='utf-8')
 
-# The Vita v8 renderer deliberately uses the CPU WScreen/UI path. Runtime-loaded
-# sprite sheets therefore need registrations in SoftwareUIRenderer too, not only
-# in the OpenGL atlas. Move the helper declaration before the first notification.
-anchor = '''void RendererNotifySpritesReloaded()\n{\n'''
-s = replace_once(s, anchor,
-    '''static void register_sheet_software(const struct TbSpriteSheet* sheet); // fwd\n\nvoid RendererNotifySpritesReloaded()\n{\n''',
-    'early register_sheet_software declaration')
-# Remove the old later forward declaration to keep the file tidy.
-s = s.replace('\nstatic void register_sheet_software(const struct TbSpriteSheet* sheet); // fwd\n\n/** Append map_flag',
-              '\n/** Append map_flag', 1)
 
-# Main in-game GUI sheets are loaded/reloaded by LoadVRes256Data/LoadMcgaData.
-old = '''#endif\n}\n\nvoid RendererDrainDeferredAtlasRebuild()\n'''
-new = '''#endif\n    register_sheet_software(gui_panel_sprites);\n    register_sheet_software(button_sprites);\n}\n\nvoid RendererDrainDeferredAtlasRebuild()\n'''
-s = replace_once(s, old, new, 'register main GUI sheets for software UI')
+def insert_before_function_close(text, function_name, code):
+    """Insert code immediately before the matching closing brace of a C++ function."""
+    marker = f'void {function_name}()'
+    start = text.find(marker)
+    if start < 0:
+        raise SystemExit(f'v8d patch: function not found: {function_name}')
+    brace = text.find('{', start)
+    if brace < 0:
+        raise SystemExit(f'v8d patch: opening brace not found: {function_name}')
+    depth = 0
+    close = -1
+    for i in range(brace, len(text)):
+        ch = text[i]
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                close = i
+                break
+    if close < 0:
+        raise SystemExit(f'v8d patch: closing brace not found: {function_name}')
+    if code.strip() in text[brace:close]:
+        return text
+    return text[:close] + code + text[close:]
 
-# Pointer sprites are loaded after renderer initialisation on Vita.
-old = '''#endif\n}\n\n/** Append frontend_sprite into the live atlas after frontend_load_data(). */\nvoid RendererNotifyFrontendSpritesLoaded()\n'''
-new = '''#endif\n    register_sheet_software(pointer_sprites);\n}\n\n/** Append frontend_sprite into the live atlas after frontend_load_data(). */\nvoid RendererNotifyFrontendSpritesLoaded()\n'''
-s = replace_once(s, old, new, 'register pointer sprites for software UI')
 
-# Frontend sprites contain the actual main-menu widgets; without this registration
-# SoftwareUIRenderer resolves every raw frontend sprite to kInvalidSpriteHandle.
-old = '''#endif\n}\n\n/** Append map_flag into the live atlas after load_spritesheet() in front_landview.c.\n'''
-new = '''#endif\n    register_sheet_software(frontend_sprite);\n}\n\n/** Append map_flag into the live atlas after load_spritesheet() in front_landview.c.\n'''
-s = replace_once(s, old, new, 'register frontend sprites for software UI')
+# Vita v8 deliberately uses the CPU WScreen/UI path. Runtime-loaded sprite sheets
+# therefore need entries in SoftwareUIRenderer's handle table, not only the GL
+# atlas. Make the helper visible before the first notification callback.
+fwd = 'static void register_sheet_software(const struct TbSpriteSheet* sheet); // fwd\n\n'
+first_notify = 'void RendererNotifySpritesReloaded()\n'
+if fwd not in s[:s.find(first_notify)]:
+    pos = s.find(first_notify)
+    if pos < 0:
+        raise SystemExit('v8d patch: RendererNotifySpritesReloaded not found')
+    s = s[:pos] + fwd + s[pos:]
 
-# Custom sprites are reloaded per campaign/level and are used by the in-game UI.
-old = '''#endif\n}\n\n/*******************************************************************************/\n\n/** Resolve a TbSprite pointer'''
-new = '''#endif\n    register_sheet_software(custom_sprites);\n}\n\n/*******************************************************************************/\n\n/** Resolve a TbSprite pointer'''
-s = replace_once(s, old, new, 'register custom sprites for software UI')
+# Remove the old later declaration (the early one stays).
+old_late = '\nstatic void register_sheet_software(const struct TbSpriteSheet* sheet); // fwd\n\n/** Append map_flag'
+if old_late in s:
+    s = s.replace(old_late, '\n/** Append map_flag', 1)
+
+# Main GUI sheets are rebuilt on video/resource reloads.
+s = insert_before_function_close(
+    s, 'RendererNotifySpritesReloaded',
+    '    register_sheet_software(gui_panel_sprites);\n'
+    '    register_sheet_software(button_sprites);\n')
+
+# These sheets are loaded later during normal startup/campaign changes.
+s = insert_before_function_close(
+    s, 'RendererNotifyPointerSpritesLoaded',
+    '    register_sheet_software(pointer_sprites);\n')
+s = insert_before_function_close(
+    s, 'RendererNotifyFrontendSpritesLoaded',
+    '    register_sheet_software(frontend_sprite);\n')
+s = insert_before_function_close(
+    s, 'RendererNotifyCustomSpritesReloaded',
+    '    register_sheet_software(custom_sprites);\n')
 
 p.write_text(s, encoding='utf-8')
 print('v8d software UI sprite registration patch applied')
