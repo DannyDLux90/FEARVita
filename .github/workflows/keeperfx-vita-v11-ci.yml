@@ -183,11 +183,22 @@ jobs:
           fi
           exit "$status"
 
-      - name: Upload v11 VPK
+      - name: List symbol outputs
+        working-directory: keeperfx
+        run: |
+          find out/build/vita-release -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
+          file out/build/vita-release/keeperfx || true
+          file out/build/vita-release/keeperfx.self || true
+
+      - name: Upload v11 VPK and symbols
         uses: actions/upload-artifact@v4
         with:
-          name: keeperfx-vita-v11-direct-controls
+          name: keeperfx-vita-v11-direct-controls-symbols
           path: |
             keeperfx/out/build/vita-release/*.vpk
             keeperfx/out/build/vita-release/*.elf
+            keeperfx/out/build/vita-release/keeperfx
+            keeperfx/out/build/vita-release/keeperfx.self
+            keeperfx/out/build/vita-release/*.map
+            keeperfx/build.log
           if-no-files-found: error
