@@ -60,6 +60,7 @@ jobs:
           python3 ../ci/keeperfx-vita/patch_v7_compilefix.py
           python3 ../ci/keeperfx-vita/patch_v8_preflight.py
           python3 ../ci/keeperfx-vita/patch_v8b_safety.py
+          python3 ../ci/keeperfx-vita/patch_v8c_loader_shutdown.py
 
           # Static correctness gates for the real-hardware black-screen fixes.
           grep -q 'c.hasGPURenderPath        = 0' src/renderer/RendererVita.h
@@ -71,6 +72,10 @@ jobs:
           grep -q '.keeperfx_vita_data_v8' src/platform/vita_bootstrap.hpp
           grep -q 'void RendererVita::ClearScreen' src/renderer/RendererVita.cpp
           grep -q 'sceDisplayWaitVblankStart' src/platform/vita_bootstrap.hpp
+          grep -q 'static void loader_shutdown' src/platform/vita_bootstrap.hpp
+          grep -q 'sceDisplaySetFrameBuf(NULL, SCE_DISPLAY_SETBUF_IMMEDIATE)' src/platform/vita_bootstrap.hpp
+          grep -q 'loader framebuffer released before SDL/vitaGL' src/platform/vita_bootstrap.hpp
+          grep -q 'KeeperFX Vita data v8' src/platform/vita_bootstrap.hpp
           grep -A5 'TbScreenMode get_frontend_vidmode' src/vidmode.c | grep -q 'Lb_SCREEN_MODE_640_480_8'
           grep -A5 'TbScreenMode get_movies_vidmode' src/vidmode.c | grep -q 'Lb_SCREEN_MODE_640_480_8'
           grep -A5 'TbScreenMode get_failsafe_vidmode' src/vidmode.c | grep -q 'Lb_SCREEN_MODE_640_480_8'
