@@ -103,6 +103,7 @@ jobs:
           PY
 
           python3 ../ci/keeperfx-vita/patch_v12_ingame_blockers_perf.py
+          python3 ../ci/keeperfx-vita/patch_v12b_affinity_order.py
 
           # V12 blocker gates.
           grep -q 'reset_autopilot_buttons' src/gui_frontbtns.c
@@ -116,6 +117,8 @@ jobs:
 
           # V12 Vita performance gates.
           grep -q 'SCE_KERNEL_CPU_MASK_USER_0' src/platform/PlatformVita.cpp
+          grep -q 'VideoInit:main-affinity-user0' src/platform/PlatformVita.cpp
+          ! grep -q '_SYSI_LOG("main-affinity-user0")' src/platform/PlatformVita.cpp
           grep -q 'SCE_KERNEL_CPU_MASK_USER_1' src/audio/audio_vita.c
           grep -q 'SCE_KERNEL_CPU_MASK_USER_2' src/audio/audio_vita.c
           grep -q 'vita_start_thread_on_core(s_dma_thread' src/audio/audio_vita.c
