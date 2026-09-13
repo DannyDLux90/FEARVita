@@ -46,7 +46,7 @@ jobs:
           p.write_text(s, encoding='utf-8')
           PY
 
-      - name: Install first-run data bootstrap, Deeper launch and v7 runtime fixes
+      - name: Install first-run bootstrap, Deeper launch and v8 correctness fixes
         working-directory: keeperfx
         run: |
           cp ../ci/keeperfx-vita/vita_bootstrap.hpp src/platform/vita_bootstrap.hpp
@@ -58,6 +58,14 @@ jobs:
           sed -i 's/loader_draw_progress(unsigned long done, unsigned long total)/loader_draw_progress(unsigned long done, unsigned long total, const char *status)/g' ../ci/keeperfx-vita/patch_v7_runtime.py
           python3 ../ci/keeperfx-vita/patch_v7_runtime.py
           python3 ../ci/keeperfx-vita/patch_v7_compilefix.py
+          python3 ../ci/keeperfx-vita/patch_v8_preflight.py
+          grep -q 'c.hasGPURenderPath        = 0' src/renderer/RendererVita.h
+          grep -q 'c.wantsFullscreenViewport = 0' src/renderer/RendererVita.h
+          grep -q 'GPU sprite intercept disabled' src/renderer/RendererManager.cpp
+          grep -q 'const TbScreenCoord vita_w = 640' src/bflib_video.c
+          grep -q 'const TbScreenCoord vita_h = 480' src/bflib_video.c
+          grep -q '.keeperfx_vita_data_v8' src/platform/vita_bootstrap.hpp
+          grep -q 'void RendererVita::ClearScreen' src/renderer/RendererVita.cpp
 
       - name: Cache FFmpeg-vita
         id: cache-ffmpeg-vita
@@ -107,17 +115,17 @@ jobs:
           set +e
           cmake --build --preset vita-release > build.log 2>&1
           status=$?
-          tail -n 160 build.log
+          tail -n 180 build.log
           if [ "$status" -ne 0 ]; then
             echo '=== ERROR DIAGNOSTICS ==='
-            grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 300 || true
+            grep -E -C 4 'undefined reference|collect2:|(^|[[:space:]])ld:|error:' build.log | tail -n 320 || true
           fi
           exit "$status"
 
       - name: Upload known-good Touch VPK
         uses: actions/upload-artifact@v4
         with:
-          name: keeperfx-vita-bootstrap-known-good-v7
+          name: keeperfx-vita-bootstrap-known-good-v8
           path: |
             keeperfx/out/build/vita-release/*.vpk
             keeperfx/out/build/vita-release/*.elf
