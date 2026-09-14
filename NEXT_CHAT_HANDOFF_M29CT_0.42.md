@@ -8,10 +8,11 @@ Inspect both `fear_fear.log` and `fear_ep.log`. EP Performance Test is the manda
 ## What M29CT adds
 - Real LTObjRef lifecycle for native client ModelInstance objects, fixing the 0.41 Flashlight/GetSocket stale-reference Data Abort.
 - Real v33 Model00p sidecar geometry retained by model_load and rendered using current node transforms / CPU skinning.
+- First hardware proof renders Model00p double-sided (`CullMode::None`) to avoid D3D/Vita winding inversion hiding valid geometry after CPU projection; re-enable backface culling only after orientation is confirmed.
 - Killzone: Mercenary-oriented controller mapping injected into FEAR CBindMgr, including real analog movement/look.
 - Single controller poll per retail frame so press edges are not consumed twice.
 - World render hardening: alpha/additive ordering, invisible-material skip, texture warmup, 8 MiB mesh + 16 MiB texture LRUs, 256px max world texture dimension, 3000->7000 world triangle budget.
-- RW link split is 0x81F00000.
+- RW link split is 0x81F00000. Final RX ends at 0x81EB3D3C.
 
 ## Hardware checks
 ### Base F.E.A.R.
@@ -29,6 +30,7 @@ Inspect both `fear_fear.log` and `fear_ep.log`. EP Performance Test is the manda
 - Expect warm budget 3000 then steady budget up to 7000.
 - Check `controls-move` and `controls-look` while actually moving the sticks.
 - Check whether gun/other native Model00p objects are visible and `model-tris > 0`.
+- Model00p is deliberately double-sided in this proof build; if geometry is visible/oriented correctly, restore selective backface culling later.
 
 ## If it crashes
 Request the new `.psp2dmp`, both logs, and `vitaGL.log` if present. Symbolize CPU dumps against the M29CT unstripped ELF if still available under `/mnt/data/fear_work/m29ay_build/FEARVita`.
