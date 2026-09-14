@@ -54,6 +54,23 @@ Expected CharacterFX result:
 - no fake/model-less player;
 - no broad unsafe HOBJECT forwarding.
 
+## Build/package status
+
+M29CM / 0.35 has now completed the full Vita build and packaging pipeline successfully.
+
+Artifacts:
+- `FEARVita_0.35_M29CM.vpk`
+- `FEARVita_0.35_M29CM_eboot.bin`
+
+Verification:
+- VPK `APP_VER`: `00.35`
+- VPK title id: `FEAR00001`
+- VPK SHA-256: `eac10cbb0ab97c61aea4416aa80059ce9a837860e91d57750b27de936b71920b`
+- eboot SHA-256: `b1edd2bba3ad1f331016e88e58ac05f4b0e9249454596fa328831d5a318de5da`
+- linked binary contains `FEARVita 0.35 / M29CM`, `pre-sfx-mgr`, `sfx-mgr-ok`, and `characterfx-stage add-list-ok lookup=`.
+
+The full build produced only the already-known mixed enum-size linker warnings; no compile or link error remained.
+
 ## Next Vita test
 
 Run both F.E.A.R. and Extraction Point. Capture `fear_fear.log`, `fear_ep.log`, `vitaGL.log`, and any new PSP2 core dump.
