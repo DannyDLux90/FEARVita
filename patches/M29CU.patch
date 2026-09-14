@@ -1,0 +1,147 @@
+diff --git a/CURRENT_STATE_M29CU_WIP.md b/CURRENT_STATE_M29CU_WIP.md
+new file mode 100644
+index 0000000..ead8b13
+--- /dev/null
++++ b/CURRENT_STATE_M29CU_WIP.md
+@@ -0,0 +1,27 @@
++# FEARVita M29CU / 0.42-WIP
++Date: 2026-09-14
++Status: menu/input regression fix; targeted host validation PASS; Vita hardware validation still required.
++
++Changes from M29CT:
++- Vita frontend command transitions now have one owner: `CBindMgr::Update()`. The direct `FearVita_DispatchCommandEdges()` path is no longer also fired in the Vita pre-world menu path, preventing one physical press from being delivered twice.
++- Fixes the New Game/difficulty regression where one Cross could open the difficulty list and immediately confirm the default difficulty in the same frame.
++- D-pad Up menu navigation follows the M29CT control remap (`FLASHLIGHT` instead of the old `SLOWMO` command).
++- D-pad Down/Left/Right remain mapped to retail arrows without allowing front-touch gameplay commands to create duplicate key events.
++- Both analog sticks can navigate retail menus: LS via Forward/Reverse/Strafe thresholds and RS via Pitch/Yaw thresholds.
++- Cross and Triangle confirm; Circle backs out even when the Circle sprint latch turns the gameplay command into `RUN`; START remains Escape/back.
++- Front touch remains additive mouse input.
++
++Validation:
++- `fearvita_controller_input_smoke`: PASS.
++- `fearvita_fear_input_map_smoke`: PASS.
++- `fearvita_lithtech_input_bridge_smoke`: PASS.
++- Static regression assertions: PASS (no duplicate Vita edge dispatch in pre-world path; LS/RS/D-pad/action menu mappings present).
++- Full host `all` target is still blocked by the pre-existing vita2d/GXM mock mismatch in `vita_gxm_frame_backend.cpp`.
++- ARM syntax probe reaches the real FEAR `Stdafx.h` after case-compat shims, then stops in unchanged LTGUIMgr source on the Windows-style include `..\\..\\shared\\DebugNew.h`; no M29CU diagnostic is reached before that blocker.
++
++Hardware checks:
++1. F.E.A.R. -> Single Player -> New Game: first Cross only opens difficulty; second Cross starts selected difficulty.
++2. Navigate ScreenMain/ScreenSingle with D-pad all four directions.
++3. Navigate with both LS and RS after returning each stick to neutral between moves.
++4. Cross confirms, Circle backs out, Triangle activates; touch still selects/activates.
++5. Verify in-level controls are unchanged after `GS_PLAYING`.
+diff --git a/lithtech/FEAR/ClientShellDLL/GameClientShell.cpp b/lithtech/FEAR/ClientShellDLL/GameClientShell.cpp
+index e7e97f3..20ac128 100644
+--- a/lithtech/FEAR/ClientShellDLL/GameClientShell.cpp
++++ b/lithtech/FEAR/ClientShellDLL/GameClientShell.cpp
+@@ -2124,12 +2124,14 @@ void CGameClientShell::Update()
+ 	// return while no player world exists.  This keeps the menu path isolated
+ 	// from gameplay-only systems that are intentionally deferred on Vita.
+ #if defined(FEARVITA_CONTROLLER_INPUT)
+-	FearVita_SetCommandEdgeCallback(FearVita_GameShellCommandEdge, this);
++	// M29CU: CBindMgr consumes the Vita held-command snapshot below and is the
++	// single authoritative source of OnCommandOn/Off transitions on Vita.
++	// Dispatching FearVita command edges here as well delivered every physical
++	// press twice (e.g. one Cross opened the difficulty list and immediately
++	// confirmed the default entry in the same frame).  Touch remains additive
++	// and is translated to the retail mouse path before CBindMgr runs.
+ 	if (FearVita_PollControllerInput())
+-	{
+ 		FearVita_DispatchFrontendTouch();
+-		FearVita_DispatchCommandEdges();
+-	}
+ #endif
+ 	CBindMgr::GetSingleton().Update();
+ 	if( !GetPlayerMgr()->IsPlayerInWorld() )
+@@ -2574,37 +2576,52 @@ void CGameClientShell::OnCommandOn(int command)
+ 			const std::uint32_t buttons = FearVita_GetControllerButtons();
+ 			switch (command)
+ 			{
+-				// Left-stick digital thresholds keep working in menus.
++				// Both analog sticks may navigate retail menus.  The left stick
++				// already exposes movement command thresholds; the right stick exposes
++				// pitch/yaw threshold commands.
+ 				case COMMAND_ID_FORWARD: key = VK_UP; break;
+ 				case COMMAND_ID_REVERSE: key = VK_DOWN; break;
+ 				case COMMAND_ID_STRAFE_LEFT: key = VK_LEFT; break;
+ 				case COMMAND_ID_STRAFE_RIGHT: key = VK_RIGHT; break;
+-
+-				// Gameplay maps the D-pad to SlowMo/grenade/weapons.  In a Retail
+-				// frontend screen, reinterpret the same physical buttons as UI arrows.
+-				case COMMAND_ID_SLOWMO:
++				case COMMAND_ID_PITCH_POS: key = VK_UP; break;
++				case COMMAND_ID_PITCH_NEG: key = VK_DOWN; break;
++				case COMMAND_ID_YAW_NEG: key = VK_LEFT; break;
++				case COMMAND_ID_YAW_POS: key = VK_RIGHT; break;
++
++				// M29CT moved D-pad Up from SlowMo to Flashlight.  Keep the physical
++				// D-pad authoritative in menus while front-touch commands continue to
++				// use the mouse path and must not create a second navigation event.
++				case COMMAND_ID_FLASHLIGHT:
+ 					if (buttons & fearvita::ControllerButton_Up) key = VK_UP;
++					else return;
+ 					break;
+ 				case COMMAND_ID_THROW_GRENADE:
+ 					if (buttons & fearvita::ControllerButton_Down) key = VK_DOWN;
++					else return;
+ 					break;
+ 				case COMMAND_ID_PREV_WEAPON:
+ 					if (buttons & fearvita::ControllerButton_Left) key = VK_LEFT;
++					else return;
+ 					break;
+ 				case COMMAND_ID_NEXT_WEAPON:
+-					// Front-touch right also means next weapon in gameplay.  Do not
+-					// turn a screen tap into a second keyboard-navigation event.
+ 					if (buttons & fearvita::ControllerButton_Right) key = VK_RIGHT;
+ 					else return;
++					break;
+ 
+-				case COMMAND_ID_FLASHLIGHT:
++				case COMMAND_ID_SLOWMO:
+ 				case COMMAND_ID_TOGGLEMELEE:
++				case COMMAND_ID_NEXT_GRENADE:
+ 					// Front touch is dispatched above as mouse move/down/up.
+ 					return;
+ 
+ 				case COMMAND_ID_JUMP:
+ 				case COMMAND_ID_ACTIVATE: key = VK_RETURN; break;
+ 				case COMMAND_ID_DUCK:
++				case COMMAND_ID_RUN:
++					// Circle becomes RUN instead of DUCK while a stick is deflected;
++					// preserve Circle-as-Back in menus in either case.
++					if (buttons & fearvita::ControllerButton_Circle) key = VK_ESCAPE;
++					break;
+ 				case COMMAND_ID_MENU: key = VK_ESCAPE; break;
+ 				default: break;
+ 			}
+diff --git a/project/src/main.cpp b/project/src/main.cpp
+index 667387a..b935f50 100644
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -533,7 +533,7 @@ int main() {
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.42-WIP / M29CT; Killzone Vita controls + ObjRef lifetime + world/model render WIP");
++      "FEARVita 0.42-WIP / M29CU; menu input de-dup + dual-stick frontend navigation");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -638,13 +638,13 @@ int main() {
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.42-WIP / M29CT; Killzone Vita controls + ObjRef lifetime + world/model render WIP");
++      "FEARVita 0.42-WIP / M29CU; menu input de-dup + dual-stick frontend navigation");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CT startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CU startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CT startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CU startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
