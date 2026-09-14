@@ -1,0 +1,121 @@
+--- a/FEAR/ClientShellDLL/GameClientShell.cpp
++++ b/FEAR/ClientShellDLL/GameClientShell.cpp
+@@ -60,6 +60,7 @@
+ #endif
+ 
+ #if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita/runtime_diagnostics.h"
+ extern "C" void FearVita_RuntimeStage(const char* stage);
+ extern "C" bool FearVita_BindClientShellGlobals(void);
+ #define FEARVITA_INIT_STAGE(stage) FearVita_RuntimeStage(stage)
+@@ -1552,6 +1553,18 @@
+ 	}
+ 	FEARVITA_INIT_STAGE("sfx-mgr-ok");
+ 
++	// The retail performance-test screen is available in the Vita frontend and
++	// loads its benchmark level directly.  The original Vita early return also
++	// skipped construction of this object, leaving StartPerformanceTest() as a
++	// silent no-op even though StartPerformanceLevel() still loaded the world.
++	// Keep benchmark semantics authentic by constructing it before returning.
++	if (!m_pPerformanceTest)
++	{
++		m_pPerformanceTest = debug_new(CPerformanceTest);
++	}
++	fearvita::RuntimeDiagnostic("perf-test",
++		std::string("frontend-init manager=") + (m_pPerformanceTest ? "ready" : "null"));
++
+ 	m_VersionMgr.Update();
+ 	FEARVITA_INIT_STAGE("frontend-vita-version-ok");
+ 
+@@ -3960,12 +3973,22 @@
+ 
+ void CGameClientShell::StartPerformanceTest()
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("perf-test",
++		std::string("start-request manager=") + (m_pPerformanceTest ? "ready" : "null"));
++#endif
+ 	if (m_pPerformanceTest)
+ 	{
+ 		m_bRunningPerfTest = true;
+ 
+-		m_pPerformanceTest->Start((uint32)g_vtPTestMinFPS.GetFloat(), 
++		const bool bStarted = m_pPerformanceTest->Start((uint32)g_vtPTestMinFPS.GetFloat(), 
+ 			(uint32)g_vtPTestMaxFPS.GetFloat());
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		fearvita::RuntimeDiagnostic("perf-test",
++			std::string("start result=") + (bStarted ? "1" : "0") +
++			" min=" + std::to_string((uint32)g_vtPTestMinFPS.GetFloat()) +
++			" max=" + std::to_string((uint32)g_vtPTestMaxFPS.GetFloat()));
++#endif
+ 
+ 		// Seed Random number generator...
+ 		SRand();
+--- a/FEAR/ClientShellDLL/MissionMgr.cpp
++++ b/FEAR/ClientShellDLL/MissionMgr.cpp
+@@ -247,6 +247,10 @@
+ // ----------------------------------------------------------------------- //
+ bool CMissionMgr::StartPerformanceLevel()
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("perf-test",
++		std::string("start-level world=") + g_vtPerformanceTestLevelName.GetStr("<unset>"));
++#endif
+ 	// Starting new mission.
+ 	m_bNewMission = true;
+ 	m_bRestoringLevel = false;
+@@ -263,7 +267,15 @@
+ 	m_eStartGameState = eStartGameFromLevel;
+ 	// Set our new level name.
+ 	if( !SetNewLevel(g_vtPerformanceTestLevelName.GetStr()) )
++	{
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++		fearvita::RuntimeDiagnostic("perf-test", "set-level failed");
++#endif
+ 		return false;
++	}
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	fearvita::RuntimeDiagnostic("perf-test", "set-level ok");
++#endif
+ 
+ 	return true;
+ }
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.36")
++  set(VITA_VERSION  "00.37")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -532,7 +532,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.36 / M29CN; live gameplay present proof + complete private asset packaging");
++      "FEARVita 0.37 / M29CO; gameplay present proof + authentic EP performance-test init");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -637,13 +637,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.36 / M29CN; live gameplay present proof + complete private asset packaging");
++      "FEARVita 0.37 / M29CO; gameplay present proof + authentic EP performance-test init");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CN startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CO startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CN startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CO startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
