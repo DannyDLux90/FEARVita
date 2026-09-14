@@ -45,6 +45,17 @@ Keep every M29CL and earlier compatibility fix, especially:
 
 Never force `GS_PLAYING` and never replace CharacterFX with a fake path.
 
+## Build/package status
+
+The full Vita build and package completed successfully on 2026-09-14.
+
+- VPK: `FEARVita_0.35_M29CM.vpk`
+- VPK SHA-256: `eac10cbb0ab97c61aea4416aa80059ce9a837860e91d57750b27de936b71920b`
+- eboot SHA-256: `b1edd2bba3ad1f331016e88e58ac05f4b0e9249454596fa328831d5a318de5da`
+- `sce_sys/param.sfo` reports app version `00.35` and title id `FEAR00001`.
+- binary marker verification passed for `0.35 / M29CM`, `pre-sfx-mgr`, `sfx-mgr-ok`, and the CharacterFX add-list success path.
+- no compiler or linker error remains; only the already-known mixed enum-size linker warnings were emitted.
+
 ## Next hardware ladder
 
 1. startup: `FEARVita 0.35 / M29CM`
