@@ -1,0 +1,117 @@
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.40")
++  set(VITA_VERSION  "00.41")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -533,7 +533,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.40 / M29CR; deferred v113 mesh cache + real diffuse materials + near-plane safety");
++      "FEARVita 0.41 / M29CS; M29CR source-lifetime regression fix + deferred real diffuse world");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -638,13 +638,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.40 / M29CR; deferred v113 mesh cache + real diffuse materials + near-plane safety");
++      "FEARVita 0.41 / M29CS; M29CR source-lifetime regression fix + deferred real diffuse world");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CR startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CS startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CR startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CS startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
+--- a/project/integration/lithtech/fearvita_jupiterex_render_vita.cpp
++++ b/project/integration/lithtech/fearvita_jupiterex_render_vita.cpp
+@@ -613,7 +613,17 @@
+ 
+ extern "C" void FearVita_SetJupiterWorldRenderSource(const char* world_name)
+ {
+-    VitaJexClearAll(true);
++    // The server-side CWorldServerBSP::Load() performs its own Term() before
++    // loading shared geometry.  That Term() clears the v113 render metadata,
++    // so this function is deliberately called only *after* the shared load
++    // succeeds.  Do not clear metadata here: it was parsed from the live
++    // World00p stream and is required by the lazy camera-time uploader.
++    if (g_vitaJexSourceStream)
++    {
++        g_vitaJexSourceStream->Release();
++        g_vitaJexSourceStream = 0;
++    }
++    g_vitaJexWorldPath.clear();
+     if (!world_name || !*world_name) return;
+     g_vitaJexWorldPath = world_name;
+     std::string lower = g_vitaJexWorldPath;
+@@ -627,8 +637,8 @@
+ 
+ extern "C" bool FearVita_LoadJupiterWorldRender(ILTStream* stream, uint32 render_data_pos)
+ {
+-    // Keep the source path set by CServerMgr::LoadWorld, but ensure no stale
+-    // runtime resources survive a failed/retried load.
++    // Parse compact metadata from the live server stream.  The reopenable VFS
++    // source path is bound by CServerMgr only after CWorldServerBSP::Load succeeds.
+     VitaJexClearRuntimeCaches();
+     g_vitaJexDefs.clear();
+     g_vitaJexSurfaces.clear();
+@@ -746,7 +756,10 @@
+         " source=" + g_vitaJexWorldPath);
+     if (!g_vitaJexMaterials.empty())
+         fearvita::RuntimeDiagnostic("world-v113-render", "material0=" + g_vitaJexMaterials[0].material_name);
+-    return g_vitaJexParsedSurfaces > 0u && !g_vitaJexWorldPath.empty();
++    // The source path is rebound by CServerMgr only after CWorldServerBSP::Load
++    // succeeds.  Requiring it here would make the shared loader fail because
++    // CWorldServerBSP::Load performs an internal Term() before parsing.
++    return g_vitaJexParsedSurfaces > 0u;
+ }
+ 
+ extern "C" void FearVita_ClearJupiterWorldRenderMeshes()
+--- a/runtime/server/src/servermgr.cpp
++++ b/runtime/server/src/servermgr.cpp
+@@ -2331,15 +2331,9 @@
+ {
+ 	world_bsp_server->Term();
+ 
+-#ifdef FEARVITA_VFS
+-    // Record the VFS path only after the previous world has terminated.  The
+-    // v113 bridge parses compact surface metadata during this load, then
+-    // reopens the World00p lazily from RenderCamera so player/model creation
+-    // is never competing with persistent world meshes.
+-    FearVita_SetJupiterWorldRenderSource(pWorldName);
+-#endif
+-
+-	// Load the world geometry.
++	// Load the world geometry.  CWorldServerBSP::Load performs an internal
++	// Term(), so the Vita lazy-render source path must be bound only after this
++	// call succeeds; otherwise that Term() clears it again.
+ 	pStream->SeekTo(0);
+  
+ 	int32 loadStatus = world_bsp_server->Load(pStream);
+@@ -2356,6 +2350,12 @@
+ 		RETURN_ERROR_PARAM(1, CServerMgr::LoadWorld, LT_INVALIDWORLDFILE, pWorldName);
+ 	}
+ 
++#ifdef FEARVITA_VFS
++    // Metadata is now safely resident.  Bind the reopenable VFS path only
++    // after CWorldServerBSP::Load's internal Term() has finished.
++    FearVita_SetJupiterWorldRenderSource(pWorldName);
++#endif
++
+ 
+ 	m_bWorldLoaded = true;
+ 	return LT_OK;
