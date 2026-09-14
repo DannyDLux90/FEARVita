@@ -1,0 +1,181 @@
+--- a/m29ay_src/project/CMakeLists.txt
++++ b/m29ay_src/project/CMakeLists.txt
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.41")
++  set(VITA_VERSION  "00.42")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
+@@ -90,10 +90,10 @@
+   # is large enough that the default 4 KiB RX->RW gap is no longer sufficient;
+   # keep explicit headroom before .init_array so clean builds retain the required
+   # metadata headroom instead of failing only at VELF conversion time.  M29CJ
+-  # raises this to 0x81eb0000: the RX image has grown past 0x81e91c00 and
++  # raises this to 0x81f00000: the RX image has grown past 0x81e91c00 and
+   # vita-elf-create crashes when .init_array is only a few hundred bytes away.
+   target_link_options(${PROJECT_NAME} PRIVATE
+-    "-Wl,--section-start=.init_array=0x81eb0000")
++    "-Wl,--section-start=.init_array=0x81f00000")
+   target_sources(${PROJECT_NAME} PRIVATE
+     integration/lithtech/fearvita_world_batch_bridge.cpp
+     integration/lithtech/fearvita_legacy_vertexbuffer_bridge.cpp)
+--- a/m29ay_src/project/src/main.cpp
++++ b/m29ay_src/project/src/main.cpp
+@@ -533,7 +533,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.41 / M29CS; M29CR source-lifetime regression fix + deferred real diffuse world");
++      "FEARVita 0.42-WIP / M29CT; Killzone Vita controls + ObjRef lifetime + world/model render WIP");
+@@ -566,7 +566,7 @@
+   fearvita::SetActiveControllerInput(&controller);
+   fearvita::RuntimeDiagnostic("startup", "renderer and controller ready");
+   fearvita::RuntimeDiagnostic("vita-controls",
+-      "killzone-style: L=aim R=fire X=jump O=crouch Square=reload Triangle=use; dpad U=slowmo D=grenade L/R=weapon; front=L flashlight/C melee/R next; rear double-tap+hold=sprint");
++      "killzone-mercenary: LS=move RS=look L=aim R=fire X=jump Square=reload Triangle=use Circle=context crouch/sprint; dpad U=flashlight L/R=weapon D=grenade; front L=slowmo C=melee R=next-grenade; rear=sprint");
+@@ -638,13 +638,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.41 / M29CS; M29CR source-lifetime regression fix + deferred real diffuse world");
++      "FEARVita 0.42-WIP / M29CT; Killzone Vita controls + ObjRef lifetime + world/model render WIP");
+@@ -677,19 +677,13 @@
+-    if (controller.Poll(&input_error)) {
+-      const auto& buttons = controller.state();
+-      if (buttons.Down(fearvita::ControllerButton_Start) &&
+-          buttons.Down(fearvita::ControllerButton_Select)) {
+-        fearvita::RuntimeDiagnostic("fail-safe-exit", "START+SELECT emergency exit");
+-        break;
+-      }
+-    }
++    // One canonical poll happens inside CGameClientShell::Update.
+     if (!fearvita::RunFearMenuFrame()) {
+       ShowDiagnostic(renderer, controller, "Retail-Loop verloren",
+                      "CGameClientShell oder ILTClient ist nicht mehr verfuegbar.");
+       break;
+     }
++    { const auto& buttons = controller.state(); if (buttons.Down(fearvita::ControllerButton_Start) && buttons.Down(fearvita::ControllerButton_Select)) { fearvita::RuntimeDiagnostic("fail-safe-exit", "START+SELECT emergency exit"); break; } }
+--- a/m29ay_src/project/include/fearvita/fear_input_map.h
++++ b/m29ay_src/project/include/fearvita/fear_input_map.h
+@@ -93,6 +93,7 @@
+   FearInputSnapshot previous_{};
+   FearInputSnapshot current_{};
++  bool sprint_latched_ = false;
+ };
+--- a/m29ay_src/project/src/fear_input_map.cpp
++++ b/m29ay_src/project/src/fear_input_map.cpp
+@@ -33,18 +33,18 @@
+-  SetCommand(&out, FearCommand_Duck, c.Down(ControllerButton_Circle));
++  SetCommand(&out, FearCommand_Duck, false);
+@@
+-  SetCommand(&out, FearCommand_SlowMo, c.Down(ControllerButton_Up));
+-  SetCommand(&out, FearCommand_NextWeapon,
+-             c.Down(ControllerButton_Right) || c.Down(ControllerButton_FrontRight));
++  SetCommand(&out, FearCommand_Flashlight, c.Down(ControllerButton_Up));
++  SetCommand(&out, FearCommand_NextWeapon, c.Down(ControllerButton_Right));
+   SetCommand(&out, FearCommand_PrevWeapon, c.Down(ControllerButton_Left));
+   SetCommand(&out, FearCommand_ThrowGrenade, c.Down(ControllerButton_Down));
+-  SetCommand(&out, FearCommand_Flashlight, c.Down(ControllerButton_FrontLeft));
++  SetCommand(&out, FearCommand_SlowMo, c.Down(ControllerButton_FrontLeft));
+   SetCommand(&out, FearCommand_ToggleMelee, c.Down(ControllerButton_FrontCenter));
++  SetCommand(&out, FearCommand_NextGrenade, c.Down(ControllerButton_FrontRight));
+@@
+ void FearInputRuntime::Update(const ControllerState& controller, const FearInputConfig& config) {
+   previous_ = current_;
+   current_ = MapControllerToFear(controller, config);
++  const float move_mag = std::sqrt(controller.move_x * controller.move_x + controller.move_y * controller.move_y);
++  const float threshold = std::clamp(config.digital_move_threshold, 0.0f, 1.0f);
++  if (controller.Hit(ControllerButton_Circle) && move_mag > threshold) sprint_latched_ = true;
++  if (move_mag <= threshold) sprint_latched_ = false;
++  SetCommand(&current_, FearCommand_Run, controller.Down(ControllerButton_RearSprint) || sprint_latched_);
++  SetCommand(&current_, FearCommand_Duck, controller.Down(ControllerButton_Circle) && !sprint_latched_);
+ }
+@@
+   previous_ = {};
+   current_ = {};
++  sprint_latched_ = false;
+ }
+--- a/m29ay_src/project/integration/lithtech/fearvita_lithtech_input_bridge.h
++++ b/m29ay_src/project/integration/lithtech/fearvita_lithtech_input_bridge.h
+@@
+ extern "C" bool FearVita_IsCommandOn(int command_id);
++extern "C" float FearVita_GetCommandAxisValue(int command_id);
+--- a/m29ay_src/project/integration/lithtech/fearvita_lithtech_input_bridge.cpp
++++ b/m29ay_src/project/integration/lithtech/fearvita_lithtech_input_bridge.cpp
+@@
+ extern "C" bool FearVita_IsCommandOn(int command_id) {
+   return g_input_runtime.IsCommandOn(command_id);
+ }
++
++extern "C" float FearVita_GetCommandAxisValue(int command_id) {
++  auto* controller = fearvita::GetActiveControllerInput();
++  if (!controller) return 0.0f;
++  const auto& st = controller->state();
++  switch (command_id) {
++    case fearvita::FearCommand_ForwardAxis: return st.move_y;
++    case fearvita::FearCommand_StrafeAxis: return st.move_x;
++    case fearvita::FearCommand_Yaw: return st.look_x;
++    case fearvita::FearCommand_Pitch: return st.look_y;
++    default: return 0.0f;
++  }
++}
+--- a/m29ay_src/project/integration/lithtech/fearvita_runtime_server_bridge.h
++++ b/m29ay_src/project/integration/lithtech/fearvita_runtime_server_bridge.h
+@@
+ extern "C" bool FearVita_RuntimeIsClientModelObject(HOBJECT hObject);
++extern "C" LTRESULT FearVita_RuntimeLinkClientModelObjRef(HOBJECT hObject, LTObjRef* pRef);
+--- a/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp
++++ b/m29ay_src/project/integration/lithtech/fearvita_iltclient_vita.cpp
+@@
+     VitaLocalObject* pLocal = AsLocal(reinterpret_cast<HLOCALOBJ>(hObj));
+-    if (!pLocal && !FearVita_RuntimeIsClientModelObject(hObj)) return LT_NOTFOUND;
++    const bool nativeModel = FearVita_RuntimeIsClientModelObject(hObj);
++    if (!pLocal && !nativeModel) return LT_NOTFOUND;
++    if (nativeModel && FearVita_RuntimeLinkClientModelObjRef(hObj, pRef) != LT_OK) return LT_NOTFOUND;
+--- a/m29ay_src/project/integration/lithtech/fearvita_runtime_server_platform_vita.cpp
++++ b/m29ay_src/project/integration/lithtech/fearvita_runtime_server_platform_vita.cpp
+@@
+ extern "C" bool FearVita_RuntimeIsClientModelObject(HOBJECT hObject)
+@@
+ }
++
++extern "C" LTRESULT FearVita_RuntimeLinkClientModelObjRef(HOBJECT hObject, LTObjRef* pRef)
++{
++    if (!pRef || !FearVita_RuntimeIsClientModelObject(hObject)) return LT_NOTFOUND;
++    LTObject* pObject = reinterpret_cast<LTObject*>(hObject);
++    dl_Insert(&pObject->m_RefList, fearvita_ObjRefToLegacyLink(pRef));
++    return LT_OK;
++}
+@@
+     g_fearvita_client_model_objects.erase(it);
++    pModel->NotifyObjRefList_Delete();
+     pModel->UnbindModelDB();
+--- a/m29ay_lithtech/lithtech-master/FEAR/ClientShellDLL/BindMgr.cpp
++++ b/m29ay_lithtech/lithtech-master/FEAR/ClientShellDLL/BindMgr.cpp
+@@
+ #include "GameClientShell.h" // For OnCommandOn/Off
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++#include "fearvita_lithtech_input_bridge.h"
++#include "CommandIDs.h"
++#endif
+@@
+ float CBindMgr::GetExtremalCommandValue(uint32 nCommand) const
+ {
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	if (nCommand == COMMAND_ID_FORWARD_AXIS || nCommand == COMMAND_ID_STRAFE_AXIS || nCommand == COMMAND_ID_YAW || nCommand == COMMAND_ID_PITCH)
++		return FearVita_GetCommandAxisValue((int)nCommand);
++#endif
+@@
+ 	m_aCommandStates.assign(m_aCommandStates.size(), false);
++
++#if defined(PLATFORM_VITA) || defined(FEARVITA_PORTABLE_COMPILE)
++	if (m_aCommandStates.size() < 202) { m_aCommandStates.resize(202, false); m_aLastCommandStates.resize(202, false); m_aClearCommandStates.resize(202, false); }
++	for (uint32 nCommand = 0; nCommand < m_aCommandStates.size(); ++nCommand) m_aCommandStates[nCommand] = FearVita_IsCommandOn((int)nCommand);
++#else
+@@
+ 	}
++
++#endif
