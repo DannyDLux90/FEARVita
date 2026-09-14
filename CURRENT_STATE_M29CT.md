@@ -12,11 +12,12 @@ M29CT is the first hardware candidate combining the stable 0.41 deferred Jupiter
 - Native client ModelInstance LTObjRefs are linked into LTObject::m_RefList and are invalidated with NotifyObjRefList_Delete before destruction.
 - FEAR v33 Model00p mesh/index/bone-weight data is retained and rendered through the Vita camera path using CPU skinning and LOD0.
 - Client model texture resources / skins are tracked and stale texture slots are released on rebind.
+- First-hardware Model00p proof is deliberately double-sided (`CullMode::None`) because the CPU projection flips Y into Vita screen space; this prevents valid weapon/prop/character meshes disappearing from a D3D/Vita winding mismatch. Backface culling can be restored after hardware orientation is proven.
 - World renderer keeps deferred v113 geometry and real diffuse materials, with separate opaque/alpha-additive ordering, invisible-material suppression, UV repeat, conservative LRU caches, and texture warmup.
 - World mesh cache: 8 MiB. World texture cache: 16 MiB. Max uploaded world texture dimension: 256 px.
 - World triangle budget warms at 3000 and may rise to 7000; native Model00p budget is 3500 triangles.
 - Projected geometry no longer burns the vita2d transient pool for an extra CPU/GPU intermediate copy.
-- RX/RW split moved to 0x81F00000. Final ELF RX ends at 0x81EB3D1C; no segment overlap.
+- RX/RW split moved to 0x81F00000. Final ELF RX ends at 0x81EB3D3C; no segment overlap.
 
 ## Vita controls (Killzone: Mercenary-oriented)
 - Left stick: move / strafe
