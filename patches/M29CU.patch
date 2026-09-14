@@ -1,12 +1,12 @@
 diff --git a/CURRENT_STATE_M29CU_WIP.md b/CURRENT_STATE_M29CU_WIP.md
 new file mode 100644
-index 0000000..ead8b13
+index 0000000..dabbf0a
 --- /dev/null
 +++ b/CURRENT_STATE_M29CU_WIP.md
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,30 @@
 +# FEARVita M29CU / 0.42-WIP
 +Date: 2026-09-14
-+Status: menu/input regression fix; targeted host validation PASS; Vita hardware validation still required.
++Status: menu/input regression fix; targeted host + real Vita/ARM compile validation PASS; Vita hardware validation still required.
 +
 +Changes from M29CT:
 +- Vita frontend command transitions now have one owner: `CBindMgr::Update()`. The direct `FearVita_DispatchCommandEdges()` path is no longer also fired in the Vita pre-world menu path, preventing one physical press from being delivered twice.
@@ -22,8 +22,11 @@ index 0000000..ead8b13
 +- `fearvita_fear_input_map_smoke`: PASS.
 +- `fearvita_lithtech_input_bridge_smoke`: PASS.
 +- Static regression assertions: PASS (no duplicate Vita edge dispatch in pre-world path; LS/RS/D-pad/action menu mappings present).
-+- Full host `all` target is still blocked by the pre-existing vita2d/GXM mock mismatch in `vita_gxm_frame_backend.cpp`.
-+- ARM syntax probe reaches the real FEAR `Stdafx.h` after case-compat shims, then stops in unchanged LTGUIMgr source on the Windows-style include `..\\..\\shared\\DebugNew.h`; no M29CU diagnostic is reached before that blocker.
++- Patch apply/check against the uploaded M29CT snapshot: PASS.
++- Real Vita CMake compile of changed `GameClientShell.cpp`: PASS, output is ELF32 ARM EABI5 relocatable.
++- Real Vita CMake compile of changed/dependent `BindMgr.cpp`: PASS, output is ELF32 ARM EABI5 relocatable.
++- Full host `all` target is still blocked by the pre-existing vita2d/GXM host-mock mismatch in `vita_gxm_frame_backend.cpp`; the Vita target itself compiles past that host-only mock issue.
++- A full clean Vita VPK rebuild was configured successfully with 1,041 build steps and progressed into FEAR ClientShell compilation. It was not completed, so this checkpoint does not claim an installable M29CU VPK.
 +
 +Hardware checks:
 +1. F.E.A.R. -> Single Player -> New Game: first Cross only opens difficulty; second Cross starts selected difficulty.
