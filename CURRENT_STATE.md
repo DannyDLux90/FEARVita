@@ -1,14 +1,15 @@
-# FEARVita current state — M29CR / 0.40 — 2026-09-14
+# FEARVita current state — M29CT / 0.42-WIP — 2026-09-14
 
-**Last hardware-verified package:** M29CQ / 0.39  
-**Current test package:** M29CR / 0.40
+**Last hardware-proven package:** M29CS / 0.41  
+**Current branch:** `m29ct-0.42-wip-handoff`  
+**Status:** reconstruction/WIP handoff only; no 0.42 VPK is release-ready.
 
-M29CQ is hardware-proven stable in Extraction Point -> Performance Test for at least 3000 retail-loop frames. Real v113 world camera rendering, presents, input and movement audio continue; the prior GPU watchdog and later Data Abort are gone.
+M29CS/0.41 proved that Base F.E.A.R. again reaches the real ScreenPostload/PressAnyKey, acknowledges it, sends stock ClientInWorld and reaches stock GS_PLAYING. EP -> Performance Test reaches real v113 World00p rendering and real `.Mat00 -> tDiffuseMap -> DDS/DTX` diffuse texture loads.
 
-Base F.E.A.R. M29CQ still fails before the real postload confirmation because the Intro renderer allocates ~17 MiB of persistent world mesh geometry before local player creation. `Playerbase.Model00p` then returns result 67 (`LT_OUTOFMEMORY`), `PLAYER.MODEL00P` fails and `ServerShell::OnClientEnterWorld` returns `LTNULL`.
+The latest hardware core then exposed the next CPU-side frontier: a Data Abort in `Model::GetSocket` through the flashlight transform path. Analysis points to native client `ModelInstance` references being accepted by the Vita ILTClient without participating in the real `LTObject::m_RefList`, while destruction also skipped `NotifyObjRefList_Delete()`.
 
-M29CR fixes this at the renderer lifetime boundary: v113 server-world load retains only compact RenderSurface/material/bounds metadata and zero persistent world meshes. The World00p source is reopened lazily from the real gameplay camera, visible surfaces enter a 12 MiB mesh LRU, and real FEAR `.Mat00` `tDiffuseMap` textures are decoded from DTX/DDS into a bounded 12 MiB texture LRU (<=512x512, <=2 new uploads/frame). World textures use GXM repeat U/V for FEAR tiled UVs. Whole-surface near-plane rejection is replaced with per-triangle safety filtering.
+M29CT WIP re-applies the ObjRef lifetime fix, routes Vita held commands and analog Forward/Strafe/Yaw/Pitch through stock `CBindMgr`, adopts Killzone: Mercenary-style Vita controls, removes the duplicate retail-loop controller poll that could consume press edges, and stages the Vita RW/init-array base at `0x81f00000` for the larger image.
 
-M29CR Release compile/link and full VPK packaging succeeded. `APP_VER=00.40`, title ID `FEAR00001`, same 22 package paths as 0.39. VPK SHA-256: `be79faff1e90004e8cb3c2a48d6c123f2ac1a20556f2212b4124debb489133db`.
+Important reconstruction warning: the live workspace from the prior runtime session disappeared before this handoff. The complete M29CS/0.41 source artifact was preserved and used as the verified reconstruction base. A further native Model00p renderer WIP described in that session was not persisted; it is documented in `M29CT_MODEL00P_V33_NOTES.md` rather than being falsely claimed as present.
 
-Required hardware proof: Base must stop reporting Playerbase result=67 and reach actual ScreenPostload/confirmation before lazy world meshes are created. EP Performance Test must retain >=3000-frame stability while progressively loading real diffuse world textures. See `CURRENT_STATE_M29CR.md` and `M29CR_NEXT_CHAT_HANDOFF_2026-09-14.md`.
+See `CURRENT_STATE_M29CT_WIP.md`, `NEXT_CHAT_HANDOFF_M29CT_0.42_WIP.md`, and `patches/M29CS_to_M29CT_WIP.patch`.
