@@ -1,0 +1,61 @@
+--- a/FEAR/ClientShellDLL/GameClientShell.cpp
++++ b/FEAR/ClientShellDLL/GameClientShell.cpp
+@@ -1539,6 +1539,19 @@
+ 	g_pClientConnectionMgr->SetModName( RETAIL_MOD_NAME );
+ 	FEARVITA_INIT_STAGE("frontend-vita-mod-ok");
+ 
++	// The Vita frontend returns early below, so all runtime systems needed later
++	// by the authentic local single-player handoff must be initialized before
++	// that return.  In particular CSFXMgr owns the dynamic SpecialFX lists.
++	// Leaving it at its constructor defaults makes CSpecialFXList::Add fail for
++	// the real local-player CharacterFX once the stock flow reaches gameplay.
++	FEARVITA_INIT_STAGE("pre-sfx-mgr");
++	if (!m_sfxMgr.Init(g_pLTClient))
++	{
++		g_pLTClient->ShutdownWithMessage(LT_WCHAR_T("Could not initialize SFXMgr!"));
++		return LT_ERROR;
++	}
++	FEARVITA_INIT_STAGE("sfx-mgr-ok");
++
+ 	m_VersionMgr.Update();
+ 	FEARVITA_INIT_STAGE("frontend-vita-version-ok");
+ 
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -76,7 +76,7 @@
+ 
+   set(VITA_APP_NAME "F.E.A.R. Vita")
+   set(VITA_TITLEID  "FEAR00001")
+-  set(VITA_VERSION  "00.34")
++  set(VITA_VERSION  "00.35")
+ 
+   target_sources(fearvita_core PRIVATE src/vita_gxm_frame_backend.cpp src/vita_controller_backend.cpp)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GxpShadersM14.cmake)
+--- a/project/src/main.cpp
++++ b/project/src/main.cpp
+@@ -532,7 +532,7 @@
+   sceIoMkdir("ux0:data/FEARVita/user", 0777);
+   fearvita::ConfigureRuntimeDiagnostics("ux0:data/FEARVita/fear_launcher.log");
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.34 / M29CL; local ClientInWorld gameutil wire fallback + shared texture cache/oom guard");
++      "FEARVita 0.35 / M29CM; Vita SFX manager init before frontend early return");
+ 
+   InitializeAppUtil();
+   const UiLanguage ui_lang = DetectUiLanguage();
+@@ -637,13 +637,13 @@
+   const std::string campaign_log = std::string("ux0:data/FEARVita/fear_") + campaign_tag + ".log";
+   fearvita::ConfigureRuntimeDiagnostics(campaign_log);
+   fearvita::RuntimeDiagnostic("startup",
+-      "FEARVita 0.34 / M29CL; local ClientInWorld gameutil wire fallback + shared texture cache/oom guard");
++      "FEARVita 0.35 / M29CM; Vita SFX manager init before frontend early return");
+   fearvita::RuntimeDiagnostic("startup", std::string("vita-ui-language=") + UiLanguageName(ui_lang));
+   fearvita::RuntimeDiagnostic("startup", std::string("selected campaign=") + selected->info.display_name);
+   if (!FearVita_EnsureAudioOutput()) {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CL startup hardware init failed");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CM startup hardware init failed");
+   } else {
+-    fearvita::RuntimeDiagnostic("sound-output", "M29CL startup hardware ready 48000Hz stereo");
++    fearvita::RuntimeDiagnostic("sound-output", "M29CM startup hardware ready 48000Hz stereo");
+   }
+   FearVita_BinkSetCampaignTag(campaign_tag);
+   FearVita_StringEditSetCampaignTag(campaign_tag);
