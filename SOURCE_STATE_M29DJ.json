@@ -1,0 +1,36 @@
+{
+  "checkpoint": "M29DJ",
+  "date": "2026-09-17",
+  "repository": "DannyDLux90/FEARVita",
+  "active_branch": "m29di-graphics-pool-fix",
+  "active_branch_note": "legacy branch name retained to preserve PR #5 continuity",
+  "pull_request": 5,
+  "base_branch": "m29dh-workspace-snapshot-2026-09-17",
+  "base_commit": "eb39e81caac2970b9c3fd8238e434c0d4ddd46c9",
+  "lithtech_upstream": "https://github.com/jsj2008/lithtech",
+  "lithtech_upstream_commit": "0eab18289bed72879eddb648d3311075b108cf46",
+  "reference_m29dh_workspace_zip_sha256": "59dca232d2bdcf711c5b59c56d21066952242a0cacfff01fc18804caa00b10d0",
+  "m29dj_runtime_patch": "patches/M29DJ_RUNTIME_INTEGRATION.patch",
+  "m29dj_runtime_patch_sha256": "90f06fc1c46ed9ebaeb97294e2bb20729570369729e7e338b1921dbae7e35092",
+  "m29dj_integration_notes": "M29DJ_RUNTIME_INTEGRATION.md",
+  "m29dj_integration_notes_sha256": "0dfef7c46015d89f41dc10c0934fd11a9a5120227f6998231b52dccf25cbde79",
+  "clean_current_source_reference_sha256": "f3790c608796ad698bfbb94dd8ec7b1f0bb3b9eaf96ea01932b8a05ae15b5618",
+  "current_patch_files": [
+    "project/CMakeLists.txt",
+    "project/include/fearvita/vita2d_pool_budget.h",
+    "project/integration/lithtech/fearvita_bink_vita.cpp",
+    "project/integration/lithtech/fearvita_iltclient_vita.cpp",
+    "project/integration/lithtech/fearvita_ilttimer_vita.cpp",
+    "project/integration/lithtech/fearvita_menu_runtime_gate.cpp",
+    "project/src/vita_gxm_frame_backend.cpp",
+    "project/tests/vita2d_pool_budget_test.cpp"
+  ],
+  "validation": {
+    "allocator_contract_accepted_layouts": 403264,
+    "patch_apply_check_against_clean_m29dh": true,
+    "targeted_arm_vita_compile": true,
+    "github_actions": "pass",
+    "vita_hardware_m29dj": false
+  },
+  "asset_gate": "The supplied M29DH VPK contains menu MP4 caches only; no intro/cinematic MP4 was present for hardware validation."
+}

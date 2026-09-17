@@ -2,30 +2,42 @@
 
 Work-in-progress PS Vita port/integration project for the open LithTech/Jupiter Ex source base used by **F.E.A.R.**.
 
-Current public app version: **0.02**  
-Current internal checkpoint: **M29AW**
+**Current internal checkpoint: M29DJ**  
+**Current integration PR: #5**  
+**Date: 2026-09-17**
 
-The original retail game data is **not** included. You must provide your own legally obtained F.E.A.R. data files. `.bik`, `.mp4`, archives, music, generated frames, campaign artwork, and other proprietary/retail-derived assets are intentionally excluded from this repository.
+The original retail game data is **not** included. Users must provide their own legally obtained F.E.A.R. data. Retail archives, movies, music and other proprietary assets are intentionally excluded from the repository.
 
-## Current status
+## Current development state
 
-The three-game frontend milestone is complete on real PS Vita hardware. F.E.A.R., Extraction Point and Perseus Mandate reach their retail frontends and play their original animated menu backgrounds with retail music and UI sounds.
+M29DJ is based on the complete M29DH workspace snapshot and consolidates the current runtime work in `patches/M29DJ_RUNTIME_INTEGRATION.patch`.
 
-M29AW standardizes the Vita gameplay control profile across all three campaigns. Restore Defaults reloads the same Killzone-inspired layout, including front touchscreen actions and rear-touch sprint. The built-in Vita Bubble manual now documents this map and the current per-campaign log locations.
+The current work includes:
 
-The base-game loading path now reaches the local single-player handshake. The remaining blocker to entering the first mission is the real FEAR ObjectDLL/server/world runtime.
+- the vita2d transient-pool crash fix and reusable CPU projection scratch;
+- one cached timer sample per engine frame and removal of the fixed `1/60` frame-time compatibility path;
+- Vita AvPlayer movie audio delivery, non-looping EOF/finished handling and restart-state reset;
+- normal movie defaults (`skiptitle=0`, `NoMovies=0`);
+- recursive packaging of campaign-relative `video_cache/**/*.mp4` files.
 
-Steam currently marks German game-interface support for F.E.A.R. as unavailable. FEARVita can still follow the Vita system language for its own UI overlay. M29AW adds an original German fallback for the first base-game loading screen only; official German retail localization is not bundled or reconstructed.
+The graphics allocation host test passes 403,264 accepted layouts. The changed graphics, timer, client/runtime-gate and Bink/AvPlayer translation units compile for ARM/Vita with the supplied VitaSDK and pinned LithTech source.
 
-Start with `CURRENT_STATE.md`, `M29AW_PROGRESS_2026-09-11.md`, and `CURRENT_STATE_M29AW.txt`.
+The supplied M29DH test VPK contains only the three menu MP4 caches and no intro/cinematic MP4 files, so the normal intro sequence still requires a hardware test with the actual intro assets. Building another VPK is not the current repository milestone.
 
-## Source layout
+## Source of truth
 
-- `project/` — FEARVita compatibility/build sources represented by milestone source exports.
-- `lithtech-overlay/` — FEARVita-modified files applied over the pinned public LithTech upstream.
-- `UPSTREAM_PIN.txt` — upstream repository/commit used as the base.
-- `patches/` — reproducible checkpoint patches.
+For active development, start with:
 
-## User-owned video cache
+1. `CURRENT_STATE.md`
+2. `M29DJ_RUNTIME_INTEGRATION.md`
+3. `SOURCE_STATE_M29DJ.json`
+4. `patches/M29DJ_RUNTIME_INTEGRATION.patch`
+5. `UPSTREAM_PIN.txt`
 
-Converted movies are namespaced by campaign (`fear`, `ep`, `pm`). Public source/build artifacts do not ship converted retail movies or private campaign artwork.
+The repository is deliberately a checkpoint/delta repository rather than a duplicate of the public LithTech upstream. The pinned upstream commit is recorded in `UPSTREAM_PIN.txt`. The M29DH source checkpoint is retained in Git history/its snapshot branch; M29DJ contains the complete current delta on top of that checkpoint. No M29DJ source modification is intended to exist only in the local workspace.
+
+Historical `CURRENT_STATE_M29*`, progress and handoff files were removed from the active M29DJ tree because they described superseded milestones. Their commits and historical branches remain available in Git.
+
+## Current target
+
+The next hardware gate is the stock Extraction Point Performance Test through the normal result dialog, followed by a second run without restarting. After that, test the normal New Game/title-movie flow with the actual intro MP4 assets, including audio, EOF/skip transition and `Intro.World00p` to player control.

@@ -1,0 +1,32 @@
+name: M29DJ runtime integration checks
+
+on:
+  push:
+    branches: [m29di-graphics-pool-fix]
+  pull_request:
+    branches: [m29dh-workspace-snapshot-2026-09-17]
+
+permissions:
+  contents: read
+
+jobs:
+  integration-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Validate consolidated patch syntax
+        run: git apply --numstat patches/M29DJ_RUNTIME_INTEGRATION.patch
+      - name: Verify runtime sections are present
+        run: |
+          grep -q 'FearVita_BeginTimerFrame' patches/M29DJ_RUNTIME_INTEGRATION.patch
+          grep -q 'sceAvPlayerGetAudioData' patches/M29DJ_RUNTIME_INTEGRATION.patch
+          grep -q 'FEARVITA_OPTIONAL_VIDEO_CACHE' patches/M29DJ_RUNTIME_INTEGRATION.patch
+      - name: Compile allocator contract tests
+        run: >-
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror
+          -fsanitize=undefined -fno-sanitize-recover=all
+          -Iproject/include project/tests/vita2d_pool_budget_test.cpp
+          -o /tmp/fearvita-pool-budget-test
+      - name: Exercise allocation boundaries and alignment
+        run: /tmp/fearvita-pool-budget-test
