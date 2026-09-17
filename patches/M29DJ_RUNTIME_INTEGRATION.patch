@@ -1,0 +1,511 @@
+diff --git a/project/CMakeLists.txt b/project/CMakeLists.txt
+index f7fd814..a002a23 100644
+--- a/project/CMakeLists.txt
++++ b/project/CMakeLists.txt
+@@ -200,22 +200,26 @@ if(FEARVITA_IS_VITA)
+     endif()
+   endforeach()
+ 
+-  # Converted menu videos are private test assets as well.  Keep the exact
+-  # campaign-relative paths expected by fearvita_bink_vita.cpp.
++  # Package every converted campaign-relative MP4 cache.  Cinematics use the
++  # same virtual Bink -> MP4 mapping as menu backgrounds, so limiting this list
++  # to Menu.mp4 silently drops intro movies even when the private cache contains
++  # them.  Private assets override identically named source-tree test assets.
+   set(FEARVITA_OPTIONAL_VIDEO_CACHE)
+-  foreach(_video_rel
+-      "video_cache/fear/videos/menu.mp4"
+-      "video_cache/ep/videosxp/menu.mp4"
+-      "video_cache/pm/videosxp2/menuxp2.mp4")
++  file(GLOB_RECURSE _source_video_cache RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
++    "${CMAKE_CURRENT_SOURCE_DIR}/video_cache/*.mp4")
++  set(_all_video_rel ${_source_video_cache})
++  if(FEARVITA_PRIVATE_ASSET_ROOT AND EXISTS "${FEARVITA_PRIVATE_ASSET_ROOT}/video_cache")
++    file(GLOB_RECURSE _private_video_cache RELATIVE "${FEARVITA_PRIVATE_ASSET_ROOT}"
++      "${FEARVITA_PRIVATE_ASSET_ROOT}/video_cache/*.mp4")
++    list(APPEND _all_video_rel ${_private_video_cache})
++  endif()
++  list(REMOVE_DUPLICATES _all_video_rel)
++  foreach(_video_rel IN LISTS _all_video_rel)
+     set(_video_src "${CMAKE_CURRENT_SOURCE_DIR}/${_video_rel}")
+-    if(FEARVITA_PRIVATE_ASSET_ROOT AND
+-       EXISTS "${FEARVITA_PRIVATE_ASSET_ROOT}/${_video_rel}")
++    if(FEARVITA_PRIVATE_ASSET_ROOT AND EXISTS "${FEARVITA_PRIVATE_ASSET_ROOT}/${_video_rel}")
+       set(_video_src "${FEARVITA_PRIVATE_ASSET_ROOT}/${_video_rel}")
+     endif()
+-    if(EXISTS "${_video_src}")
+-      list(APPEND FEARVITA_OPTIONAL_VIDEO_CACHE
+-        FILE "${_video_src}" "${_video_rel}")
+-    endif()
++    list(APPEND FEARVITA_OPTIONAL_VIDEO_CACHE FILE "${_video_src}" "${_video_rel}")
+   endforeach()
+ 
+   vita_create_vpk(${PROJECT_NAME}.vpk ${VITA_TITLEID} eboot.bin
+diff --git a/project/include/fearvita/vita2d_pool_budget.h b/project/include/fearvita/vita2d_pool_budget.h
+new file mode 100644
+index 0000000..d2b8e1c
+--- /dev/null
++++ b/project/include/fearvita/vita2d_pool_budget.h
+@@ -0,0 +1,32 @@
++#pragma once
++
++#include <cstddef>
++#include <cstdint>
++#include <limits>
++
++namespace fearvita {
++
++// libvita2d uses an unsigned-int allocator and rejects allocations whose end
++// equals pool_size. Reserve worst-case alignment padding before every hidden
++// pool allocation as well as the RGBA uniform used by textured draws.
++// CPU-only projection scratch is deliberately not allocated from this pool.
++inline bool HasVita2dVertexPoolSpace(std::size_t free_bytes,
++                                     std::size_t vertex_count,
++                                     std::size_t vertex_stride,
++                                     bool textured) {
++  const std::size_t max_allocation =
++      std::numeric_limits<unsigned int>::max();
++  if (vertex_count == 0 || vertex_stride == 0 ||
++      vertex_stride > max_allocation ||
++      vertex_count > max_allocation / vertex_stride) {
++    return false;
++  }
++
++  const std::uint64_t vertex_bytes =
++      static_cast<std::uint64_t>(vertex_count) * vertex_stride;
++  const std::uint64_t required =
++      vertex_bytes + 15u + (textured ? 3u + 16u : 0u);
++  return required < static_cast<std::uint64_t>(free_bytes);
++}
++
++}  // namespace fearvita
+diff --git a/project/integration/lithtech/fearvita_bink_vita.cpp b/project/integration/lithtech/fearvita_bink_vita.cpp
+index 8bb1b29..c70f5a4 100644
+--- a/project/integration/lithtech/fearvita_bink_vita.cpp
++++ b/project/integration/lithtech/fearvita_bink_vita.cpp
+@@ -3,10 +3,12 @@
+ #include "fearvita_iltstream_adapter.h"
+ #include "fearvita/runtime_diagnostics.h"
+ #include "iltstream.h"
++#include "iltvideotexture.h"
+ 
+ #include <psp2/io/fcntl.h>
+ #include <psp2/io/stat.h>
+ #include <psp2/avplayer.h>
++#include <psp2/audioout.h>
+ #include <psp2/gxm.h>
+ #include <psp2/kernel/sysmem.h>
+ #include <psp2/kernel/processmgr.h>
+@@ -57,6 +59,12 @@ struct BinkVideoHandle {
+   bool av_first_frame_logged = false;
+   bool av_inactive_logged = false;
+   bool av_source_is_cache = false;
++  bool av_was_active = false;
++  bool av_audio_logged = false;
++  int av_audio_port = -1;
++  uint32_t av_audio_samples = 0;
++  uint32_t av_audio_rate = 0;
++  uint16_t av_audio_channels = 0;
+   SceAvPlayerHandle av_player = 0;
+   SceAvPlayerFrameInfo av_frame{};
+   uint8_t* av_staging[kAvStagingBufferCount] = {};
+@@ -246,6 +254,12 @@ bool IsKnownAvPlayerErrorValue(uint32_t raw) {
+ 
+ void CloseAvPlayer(BinkVideoHandle* video) {
+   if (!video) return;
++  if (video->av_audio_port >= 0) {
++    sceAudioOutOutput(video->av_audio_port, nullptr);
++    sceAudioOutReleasePort(video->av_audio_port);
++    video->av_audio_port = -1;
++    video->av_audio_samples = 0;
++  }
+   if (HasAvPlayer(video)) {
+     fearvita::RuntimeDiagnostic("bink-avplayer", std::string("close-begin source=") +
+         video->av_source + " staged=" + (video->av_staging[0] ? "1" : "0"));
+@@ -259,6 +273,7 @@ void CloseAvPlayer(BinkVideoHandle* video) {
+   }
+   video->av_player = 0;
+   video->av_has_frame = false;
++  video->av_was_active = false;
+   std::memset(&video->av_frame, 0, sizeof(video->av_frame));
+   FreeAvStaging(video);
+ }
+@@ -634,6 +649,8 @@ LTRESULT FearVita_BinkRestart(HVIDEOTEXTURE handle) {
+   video->paused = false;
+   video->finished = false;
+   video->wait_logged = false;
++  video->av_inactive_logged = false;
++  video->av_was_active = false;
+   if (HasAvPlayer(video)) {
+     sceAvPlayerJumpToTime(video->av_player, 0);
+     sceAvPlayerResume(video->av_player);
+@@ -667,6 +684,39 @@ LTRESULT FearVita_BinkPauseAll(bool pause) {
+   return LT_OK;
+ }
+ 
++void PumpAvAudio(BinkVideoHandle* video) {
++  if (!video || !HasAvPlayer(video) || !(video->options & eVTO_PlaySound)) return;
++  SceAvPlayerFrameInfo audio{};
++  if (sceAvPlayerGetAudioData(video->av_player, &audio) != SCE_TRUE || !audio.pData) return;
++  const uint16_t channels = audio.details.audio.channelCount;
++  const uint32_t rate = audio.details.audio.sampleRate;
++  if ((channels != 1 && channels != 2) || !rate || audio.details.audio.size < channels * 2u) return;
++  uint32_t samples = audio.details.audio.size / (channels * 2u);
++  samples = (samples / 64u) * 64u;
++  if (samples < SCE_AUDIO_MIN_LEN) return;
++  if (video->av_audio_port < 0 || video->av_audio_samples != samples ||
++      video->av_audio_rate != rate || video->av_audio_channels != channels) {
++    if (video->av_audio_port >= 0) sceAudioOutReleasePort(video->av_audio_port);
++    video->av_audio_port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_BGM,
++        static_cast<int>(samples), static_cast<int>(rate),
++        channels == 2 ? SCE_AUDIO_OUT_MODE_STEREO : SCE_AUDIO_OUT_MODE_MONO);
++    if (video->av_audio_port < 0) {
++      fearvita::RuntimeDiagnostic("bink-audio", "sceAudioOutOpenPort failed result=" +
++          std::to_string(video->av_audio_port));
++      return;
++    }
++    video->av_audio_samples = samples;
++    video->av_audio_rate = rate;
++    video->av_audio_channels = channels;
++  }
++  if (!video->av_audio_logged) {
++    video->av_audio_logged = true;
++    fearvita::RuntimeDiagnostic("bink-audio", "first-frame rate=" + std::to_string(rate) +
++        " channels=" + std::to_string(channels) + " samples=" + std::to_string(samples));
++  }
++  sceAudioOutOutput(video->av_audio_port, audio.pData);
++}
++
+ HTEXTURE FearVita_BinkGetFrameTexture(HVIDEOTEXTURE handle) {
+   BinkVideoHandle* video = Resolve(handle);
+   return video ? video->frame_texture : nullptr;
+@@ -678,6 +728,9 @@ void FearVita_BinkPump(HVIDEOTEXTURE handle) {
+ 
+   TryStartAvPlayer(video);
+   if (HasAvPlayer(video)) {
++    const bool active_before = sceAvPlayerIsActive(video->av_player) == SCE_TRUE;
++    video->av_was_active = video->av_was_active || active_before;
++    PumpAvAudio(video);
+     SceAvPlayerFrameInfo frame{};
+     if (sceAvPlayerGetVideoData(video->av_player, &frame) == SCE_TRUE && frame.pData &&
+         frame.details.video.width && frame.details.video.height) {
+@@ -715,7 +768,15 @@ void FearVita_BinkPump(HVIDEOTEXTURE handle) {
+       }
+     }
+ 
+-    if (!sceAvPlayerIsActive(video->av_player) && !video->av_has_frame && !video->av_inactive_logged) {
++    const bool active_after = sceAvPlayerIsActive(video->av_player) == SCE_TRUE;
++    if (!active_after && video->av_was_active && !IsMenuBink(NormalizeName(video->name.c_str()))) {
++      if (!video->finished) {
++        video->finished = true;
++        fearvita::RuntimeDiagnostic("bink-avplayer", std::string("eof source=") + video->av_source +
++            " current-ms=" + std::to_string(static_cast<unsigned long long>(
++                sceAvPlayerCurrentTime(video->av_player))));
++      }
++    } else if (!active_after && !video->av_has_frame && !video->av_inactive_logged) {
+       video->av_inactive_logged = true;
+       fearvita::RuntimeDiagnostic("bink-avplayer", std::string("inactive-without-frame source=") +
+           video->av_source + (video->av_source_is_cache ?
+diff --git a/project/integration/lithtech/fearvita_iltclient_vita.cpp b/project/integration/lithtech/fearvita_iltclient_vita.cpp
+index 432483c..83b69b3 100644
+--- a/project/integration/lithtech/fearvita_iltclient_vita.cpp
++++ b/project/integration/lithtech/fearvita_iltclient_vita.cpp
+@@ -43,6 +43,7 @@
+ 
+ extern ILTPhysics* FearVita_GetPhysicsCore();
+ extern ILTTimer* FearVita_GetTimer();
++extern float FearVita_GetFrameSeconds();
+ extern ILTSoundMgr* FearVita_GetSoundMgr();
+ extern LTRESULT FearVita_SoundGetTimer(HLTSOUND hSound, LTFLOAT* seconds);
+ extern LTRESULT FearVita_SoundGetData(HLTSOUND hSound, int16*& sixteenBit, int8*& eightBit, uint32* samplesPerSecond, uint32* channels);
+@@ -414,7 +415,7 @@ float ClockSeconds() {
+   using namespace std::chrono;
+   return duration<float>(steady_clock::now().time_since_epoch()).count();
+ }
+-float FrameSeconds() { return 1.0f / 60.0f; }
++float FrameSeconds() { return FearVita_GetFrameSeconds(); }
+ bool CommandOn(int) { return false; }
+ void SetInputStateFn(bool enabled) { g_inputEnabled = enabled; }
+ LTRESULT ClearInputFn() { return LT_OK; }
+diff --git a/project/integration/lithtech/fearvita_ilttimer_vita.cpp b/project/integration/lithtech/fearvita_ilttimer_vita.cpp
+index 29f3887..31bf54f 100644
+--- a/project/integration/lithtech/fearvita_ilttimer_vita.cpp
++++ b/project/integration/lithtech/fearvita_ilttimer_vita.cpp
+@@ -31,6 +31,7 @@ public:
+   double elapsed_s = 0.0;
+   double parent_accumulated_at_sync = 0.0;
+   std::chrono::steady_clock::time_point wall_sync = std::chrono::steady_clock::now();
++  uint64_t last_frame_generation = std::numeric_limits<uint64_t>::max();
+ };
+ 
+ namespace {
+@@ -54,6 +55,18 @@ public:
+ 
+   const char* _InterfaceImplementation() override { return "CVitaLTTimer"; }
+ 
++  void BeginFrame() {
++    ++frame_generation_;
++    if (frame_generation_ == std::numeric_limits<uint64_t>::max()) frame_generation_ = 1;
++    frame_now_ = Clock::now();
++    Sync(&system_);
++  }
++
++  float FrameSeconds() {
++    Sync(&system_);
++    return static_cast<float>(system_.elapsed_s);
++  }
++
+   HENGINETIMER CreateTimer() override {
+     auto* timer = new (std::nothrow) CEngineTimer;
+     if (!timer) return nullptr;
+@@ -249,11 +262,11 @@ private:
+   }
+ 
+   void Sync(CEngineTimer* timer) {
+-    if (!timer) return;
++    if (!timer || timer->last_frame_generation == frame_generation_) return;
+ 
+     double delta = 0.0;
+     if (timer == &system_) {
+-      const auto now = Clock::now();
++      const auto now = frame_generation_ ? frame_now_ : Clock::now();
+       delta = std::chrono::duration<double>(now - timer->wall_sync).count();
+       timer->wall_sync = now;
+     } else if (timer->parent) {
+@@ -261,9 +274,9 @@ private:
+       delta = timer->parent->accumulated_s - timer->parent_accumulated_at_sync;
+       timer->parent_accumulated_at_sync = timer->parent->accumulated_s;
+     } else {
+-      // Detached timers intentionally do not advance, matching the SDK contract.
+       timer->elapsed_s = 0.0;
+-      timer->wall_sync = Clock::now();
++      timer->wall_sync = frame_generation_ ? frame_now_ : Clock::now();
++      timer->last_frame_generation = frame_generation_;
+       return;
+     }
+ 
+@@ -277,18 +290,25 @@ private:
+     if (ms > static_cast<double>(timer->max_ms)) ms = static_cast<double>(timer->max_ms);
+     timer->elapsed_s = ms / 1000.0;
+     timer->accumulated_s += timer->elapsed_s;
++    timer->last_frame_generation = frame_generation_;
+   }
+ 
+   CEngineTimer system_;
+   CEngineTimer simulation_;
+   std::unordered_set<CEngineTimer*> timers_;
+   std::unordered_map<HOBJECT, CEngineTimer*> object_timers_;
++  uint64_t frame_generation_ = 0;
++  Clock::time_point frame_now_ = Clock::now();
+ };
+ 
+ CVitaLTTimer g_timer;
+ 
+ } // namespace
+ 
++void FearVita_BeginTimerFrame() { g_timer.BeginFrame(); }
++
++float FearVita_GetFrameSeconds() { return g_timer.FrameSeconds(); }
++
+ ILTTimer* FearVita_GetTimer() {
+   static bool logged = false;
+   if (!logged) {
+diff --git a/project/integration/lithtech/fearvita_menu_runtime_gate.cpp b/project/integration/lithtech/fearvita_menu_runtime_gate.cpp
+index b63d2aa..4ff046e 100644
+--- a/project/integration/lithtech/fearvita_menu_runtime_gate.cpp
++++ b/project/integration/lithtech/fearvita_menu_runtime_gate.cpp
+@@ -39,6 +39,7 @@ extern ILTTextureMgr* FearVita_GetTextureMgr();
+ extern ILTResourceMgr* FearVita_GetResourceMgr();
+ extern ILTPhysicsSim* FearVita_GetPhysicsSim();
+ extern ILTTimer* FearVita_GetTimer();
++extern void FearVita_BeginTimerFrame();
+ extern ILTSoundMgr* FearVita_GetSoundMgr();
+ extern "C" ILTTextureString* FearVita_GetTextureString();
+ 
+@@ -124,8 +125,8 @@ extern "C" void FearVita_ConfigureRetailFrontendDefaults() {
+   // Vita has its own launcher/splash before Retail init.  Once a campaign is
+   // selected, go straight to the game's main screen and avoid the still-unported
+   // Bink/title-movie path during the menu milestone.
+-  g_pLTClient->SetConsoleVariableFloat("skiptitle", 1.0f);
+-  g_pLTClient->SetConsoleVariableFloat("NoMovies", 1.0f);
++  g_pLTClient->SetConsoleVariableFloat("skiptitle", 0.0f);
++  g_pLTClient->SetConsoleVariableFloat("NoMovies", 0.0f);
+   g_pLTClient->SetConsoleVariableFloat("HardwareCursor", 0.0f);
+   g_pLTClient->SetConsoleVariableFloat("DisableHardwareCursor", 1.0f);
+ }
+@@ -138,6 +139,7 @@ extern "C" bool FearVita_RunRetailClientShellFrame() {
+   static uint32 s_frame = 0;
+   const bool trace = (s_frame < 3u);
+   IClientShell* shell = static_cast<IClientShell*>(g_pGameClientShell);
++  FearVita_BeginTimerFrame();
+   if (trace) fearvita::RuntimeDiagnostic("retail-frame", "pre-before frame=" + std::to_string(s_frame));
+   shell->PreUpdate();
+   if (trace) fearvita::RuntimeDiagnostic("retail-frame", "pre-ok frame=" + std::to_string(s_frame));
+diff --git a/project/src/vita_gxm_frame_backend.cpp b/project/src/vita_gxm_frame_backend.cpp
+index 4eb5788..1fd2a6a 100644
+--- a/project/src/vita_gxm_frame_backend.cpp
++++ b/project/src/vita_gxm_frame_backend.cpp
+@@ -1,4 +1,5 @@
+ #include "fearvita/frame_renderer.h"
++#include "fearvita/vita2d_pool_budget.h"
+ 
+ #if defined(__vita__) || defined(PLATFORM_VITA)
+ 
+@@ -8,6 +9,9 @@
+ #include <algorithm>
+ #include <cstdint>
+ #include <cstring>
++#include <limits>
++#include <memory>
++#include <new>
+ #include <unordered_map>
+ 
+ namespace fearvita {
+@@ -164,15 +168,29 @@ class VitaGxmFrameBackend final : public IFrameBackend {
+       texture = it->second;
+     }
+ 
+-    const std::size_t projected_bytes = draw.index_count * sizeof(ProjectedVertex);
+-    if (projected_bytes > vita2d_pool_free_space()) {
+-      if (error) *error = "vita2d transient pool is too small for projected vertices.";
++    const std::size_t output_stride = texture ? sizeof(vita2d_texture_vertex)
++                                                : sizeof(vita2d_color_vertex);
++    if (draw.index_count >
++            std::numeric_limits<std::size_t>::max() / sizeof(ProjectedVertex) ||
++        !HasVita2dVertexPoolSpace(vita2d_pool_free_space(), draw.index_count,
++                                 output_stride, texture != nullptr)) {
++      if (error) *error =
++          "vita2d transient pool cannot fit the complete triangle draw.";
+       return false;
+     }
+-    auto* projected = static_cast<ProjectedVertex*>(
+-        vita2d_pool_memalign(static_cast<unsigned int>(projected_bytes), 16u));
+-    if (!projected || !ProjectIndexedTriangles(draw, config_.width, config_.height,
+-                                                projected, draw.index_count)) {
++    if (draw.index_count > projection_capacity_) {
++      std::unique_ptr<ProjectedVertex[]> replacement(
++          new (std::nothrow) ProjectedVertex[draw.index_count]);
++      if (!replacement) {
++        if (error) *error = "CPU projection scratch allocation failed.";
++        return false;
++      }
++      projection_scratch_.swap(replacement);
++      projection_capacity_ = draw.index_count;
++    }
++    auto* projected = projection_scratch_.get();
++    if (!ProjectIndexedTriangles(draw, config_.width, config_.height,
++                                 projected, draw.index_count)) {
+       if (error) *error = "Vita indexed triangle projection failed.";
+       return false;
+     }
+@@ -253,6 +271,8 @@ class VitaGxmFrameBackend final : public IFrameBackend {
+     vita2d_wait_rendering_done();
+     for (auto& entry : textures_) vita2d_free_texture(entry.second);
+     textures_.clear();
++    projection_scratch_.reset();
++    projection_capacity_ = 0;
+     vita2d_fini();
+     initialized_ = false;
+     next_texture_id_ = 1;
+@@ -264,6 +284,8 @@ class VitaGxmFrameBackend final : public IFrameBackend {
+   bool in_frame_ = false;
+   std::uint32_t next_texture_id_ = 1;
+   std::unordered_map<std::uint32_t, vita2d_texture*> textures_;
++  std::unique_ptr<ProjectedVertex[]> projection_scratch_;
++  std::size_t projection_capacity_ = 0;
+ };
+ 
+ }  // namespace
+diff --git a/project/tests/vita2d_pool_budget_test.cpp b/project/tests/vita2d_pool_budget_test.cpp
+new file mode 100644
+index 0000000..e44157a
+--- /dev/null
++++ b/project/tests/vita2d_pool_budget_test.cpp
+@@ -0,0 +1,87 @@
++#include "fearvita/vita2d_pool_budget.h"
++
++#include <cstddef>
++#include <cstdint>
++#include <cstdlib>
++#include <iostream>
++#include <limits>
++
++namespace {
++
++void Require(bool condition, const char* message) {
++  if (!condition) {
++    std::cerr << message << '\n';
++    std::exit(1);
++  }
++}
++
++// Model the allocator contract from libvita2d a8f15ab, independently of the
++// conservative budget calculation. This allocator must reject exact fits.
++bool TryAllocate(std::size_t capacity, std::size_t& used,
++                 std::size_t bytes, std::size_t alignment) {
++  const std::size_t aligned = (used + alignment - 1u) & ~(alignment - 1u);
++  if (aligned >= capacity || bytes >= capacity - aligned) return false;
++  used = aligned + bytes;
++  return true;
++}
++
++}  // namespace
++
++int main() {
++  using fearvita::HasVita2dVertexPoolSpace;
++
++  // The old checks could fit vertices but leave only four bytes for the
++  // unguarded 16-byte libvita2d color uniform.
++  Require(!HasVita2dVertexPoolSpace(64, 3, 20, true),
++          "A textured draw must budget its color uniform");
++  Require(!HasVita2dVertexPoolSpace(94, 3, 20, true),
++          "Worst-case exact fits must be rejected");
++  Require(HasVita2dVertexPoolSpace(95, 3, 20, true),
++          "One byte beyond the conservative bound must fit");
++  Require(!HasVita2dVertexPoolSpace(63, 3, 16, false),
++          "Color vertex allocation must reserve alignment and strict end");
++  Require(HasVita2dVertexPoolSpace(64, 3, 16, false),
++          "A safely fitting color draw must be accepted");
++
++  Require(!HasVita2dVertexPoolSpace(1024, 0, 20, true), "Reject empty draws");
++  Require(!HasVita2dVertexPoolSpace(1024, 3, 0, true), "Reject zero stride");
++  Require(!HasVita2dVertexPoolSpace(
++              std::numeric_limits<std::size_t>::max(),
++              std::numeric_limits<std::size_t>::max(), 20, true),
++          "Reject overflowing vertex byte counts");
++  Require(!HasVita2dVertexPoolSpace(
++              std::numeric_limits<std::size_t>::max(),
++              std::numeric_limits<unsigned int>::max(), 20, true),
++          "Reject sizes that truncate at the Vita allocator boundary");
++
++  // 120,000 textured triangles require 7.2 MB of actual GPU vertices, which
++  // fits in the existing 8 MiB pool once CPU projection scratch is separate.
++  Require(HasVita2dVertexPoolSpace(8u * 1024u * 1024u, 360000u, 20u, true),
++          "The geometry budget must fit without the duplicate pool copy");
++
++  std::size_t checked = 0;
++  for (std::size_t initial = 0; initial != 32; ++initial) {
++    for (std::size_t free_bytes = 0; free_bytes != 513; ++free_bytes) {
++      for (std::size_t count = 1; count != 25; ++count) {
++        for (bool textured : {false, true}) {
++          const std::size_t stride = textured ? 20u : 16u;
++          if (!HasVita2dVertexPoolSpace(free_bytes, count, stride, textured))
++            continue;
++          std::size_t used = initial;
++          const std::size_t capacity = initial + free_bytes;
++          Require(TryAllocate(capacity, used, count * stride, 16),
++                  "Accepted draw exhausted the pool on vertices");
++          if (textured) {
++            Require(TryAllocate(capacity, used, 16, 4),
++                    "Accepted draw exhausted the pool on the hidden uniform");
++          }
++          ++checked;
++        }
++      }
++    }
++  }
++
++  std::cout << "PASS: " << checked
++            << " accepted draw layouts satisfy the libvita2d contract\n";
++  return 0;
++}
